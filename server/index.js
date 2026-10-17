@@ -97,7 +97,7 @@ function getLocalIp() {
 app.get('/api/config/server-info', (req, res) => {
   const localIp = getLocalIp();
   const port = process.env.PORT || 5000;
-  const publicUrl = process.env.PUBLIC_URL || null;
+  const publicUrl = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL || null;
   res.json({
     localIp,
     port,

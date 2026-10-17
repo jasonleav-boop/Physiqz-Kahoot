@@ -59,7 +59,8 @@ export default function PresenterView({ socket, initialRoomData, onExitSession }
   // Generate QR Code for students to join instantly
   useEffect(() => {
     if (!roomCode) return;
-    const baseUrl = serverInfo?.bestJoinUrl || window.location.origin;
+    const isPublicHost = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+    const baseUrl = isPublicHost ? window.location.origin : (serverInfo?.bestJoinUrl || window.location.origin);
     let joinUrl = `${baseUrl}/join?room=${roomCode}`;
     if (passcode) {
       joinUrl += `&pwd=${encodeURIComponent(passcode)}`;

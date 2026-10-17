@@ -7,7 +7,7 @@
     "start": "node server/index.js",
     "server": "node server/index.js",
     "build:client": "cd client && npm run build",
-    "build": "cd client && npm run build",
+    "build": "cd client && npm install && npm run build",
     "test": "node scratch/simulate_game.js"
   },
   "keywords": [],
