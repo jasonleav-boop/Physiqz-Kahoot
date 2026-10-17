@@ -554,8 +554,10 @@ export default function TutorDashboard({
               <option value="ALL">All Subjects</option>
               <option value="Electricity">⚡ Electricity (អគ្គិសនី)</option>
               <option value="Mechanics">⚙️ Mechanics (មេកានិច)</option>
-              <option value="Thermodynamics">🔥 Thermodynamics</option>
-              <option value="Optics">🔬 Optics (អុបទិក)</option>
+              <option value="Physics I (Physics for Engineering)">📘 Physics I (Physics for Engineering)</option>
+              <option value="Physics II">📗 Physics II</option>
+              <option value="Vibrations and Waves">🌊 Vibrations and Waves (រំញ័រ និងរលក)</option>
+              <option value="Thermodynamics">🔥 Thermodynamics (ទែម៉ូឌីណាមិច)</option>
             </select>
 
             <select
@@ -1415,8 +1417,10 @@ export default function TutorDashboard({
                 >
                   <option value="Electricity">⚡ Electricity (អគ្គិសនី)</option>
                   <option value="Mechanics">⚙️ Mechanics (មេកានិច)</option>
-                  <option value="Thermodynamics">🔥 Thermodynamics</option>
-                  <option value="Optics">🔬 Optics (អុបទិក)</option>
+                  <option value="Physics I (Physics for Engineering)">📘 Physics I (Physics for Engineering)</option>
+                  <option value="Physics II">📗 Physics II</option>
+                  <option value="Vibrations and Waves">🌊 Vibrations and Waves (រំញ័រ និងរលក)</option>
+                  <option value="Thermodynamics">🔥 Thermodynamics (ទែម៉ូឌីណាមិច)</option>
                 </select>
               </div>
 

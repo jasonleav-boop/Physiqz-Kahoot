@@ -165,6 +165,11 @@ try {
   db.exec(`UPDATE class_groups SET year_level = CASE WHEN code LIKE 'I1-%' THEN 'I1' ELSE 'I2' END;`);
 } catch (e) {}
 
+try {
+  db.exec(`UPDATE quizzes SET subject = 'Physics I (Physics for Engineering)' WHERE subject IN ('General Physics', 'Optics');`);
+  db.exec(`UPDATE attendance_sessions SET subject = 'Physics I (Physics for Engineering)' WHERE subject IN ('General Physics', 'Optics');`);
+} catch (e) {}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS system_settings (
     key TEXT PRIMARY KEY,

@@ -355,6 +355,94 @@ router.post('/sessions', authenticateToken, (req, res) => {
 });
 
 // -------------------------------------------------------------
+// 4b. List all attendance sessions (History & Overview)
+// -------------------------------------------------------------
+router.get('/sessions', authenticateToken, (req, res) => {
+  try {
+    const { groupId, subject, classType, yearLevel, limit = 100 } = req.query;
+    let query = `
+      SELECT 
+        s.id,
+        s.session_code,
+        s.title,
+        s.date,
+        s.is_active,
+        s.subject,
+        s.class_type,
+        s.created_at,
+        s.ended_at,
+        s.passcode,
+        g.id as group_id,
+        g.code as group_code,
+        g.department,
+        g.academic_year,
+        g.year_level,
+        t.name as tutor_name,
+        t.email as tutor_email,
+        (SELECT COUNT(*) FROM attendance_records ar WHERE ar.attendance_session_id = s.id AND ar.status = 'PRESENT') as present_count,
+        (SELECT COUNT(*) FROM attendance_records ar WHERE ar.attendance_session_id = s.id AND ar.status = 'ABSENT') as absent_count,
+        (SELECT COUNT(*) FROM attendance_records ar WHERE ar.attendance_session_id = s.id AND ar.status = 'LATE') as late_count,
+        (SELECT COUNT(*) FROM attendance_records ar WHERE ar.attendance_session_id = s.id AND ar.status = 'EXCUSED') as excused_count,
+        (SELECT COUNT(*) FROM students st WHERE st.group_id = s.group_id) as total_students
+      FROM attendance_sessions s
+      JOIN class_groups g ON g.id = s.group_id
+      JOIN tutors t ON t.id = s.tutor_id
+    `;
+    const params = [];
+    const where = [];
+
+    if (groupId) {
+      where.push('s.group_id = ?');
+      params.push(groupId);
+    }
+    if (subject && subject !== 'ALL') {
+      where.push('s.subject = ?');
+      params.push(subject);
+    }
+    if (classType && classType !== 'ALL') {
+      where.push('s.class_type = ?');
+      params.push(classType);
+    }
+    if (yearLevel && yearLevel !== 'ALL') {
+      where.push('g.year_level = ?');
+      params.push(yearLevel);
+    }
+
+    if (where.length > 0) {
+      query += ' WHERE ' + where.join(' AND ');
+    }
+
+    query += ' ORDER BY s.created_at DESC LIMIT ?';
+    params.push(parseInt(limit, 10));
+
+    const sessions = db.prepare(query).all(...params);
+    res.json(sessions);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete an attendance session
+router.delete('/sessions/:id', authenticateToken, (req, res) => {
+  try {
+    const sessionId = req.params.id;
+    const session = db.prepare('SELECT * FROM attendance_sessions WHERE id = ?').get(sessionId);
+    if (!session) return res.status(404).json({ error: 'Session not found.' });
+
+    const isOwner = session.tutor_id === req.tutor.id;
+    const isAdminOrLead = req.tutor.is_admin || req.tutor.role === 'lead';
+    if (!isOwner && !isAdminOrLead) {
+      return res.status(403).json({ error: 'Permission denied.' });
+    }
+
+    db.prepare('DELETE FROM attendance_sessions WHERE id = ?').run(sessionId);
+    res.json({ success: true, message: 'Attendance session removed.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
 // 5. Get Attendance Session details & live roster
 // -------------------------------------------------------------
 router.get('/sessions/:id', authenticateToken, (req, res) => {
