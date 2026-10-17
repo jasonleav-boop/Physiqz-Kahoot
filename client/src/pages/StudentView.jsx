@@ -219,13 +219,13 @@ export default function StudentView({ defaultRoomCode = '' }) {
                 <Smartphone className="w-6 h-6" />
               </div>
               <h1 className="text-2xl font-black text-white tracking-tight">Join Physics Quiz</h1>
-              <p className="text-xs text-slate-400">Enter room code and choose your avatar</p>
+              <p className="text-xs text-slate-400">Enter session PIN to participate in the class activity</p>
             </div>
 
             <form onSubmit={handleJoin} className="space-y-4 bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl">
               <div>
                 <label className="block text-xs font-bold text-slate-300 uppercase mb-1">
-                  Game PIN *
+                  Session PIN *
                 </label>
                 <input
                   type="text"
@@ -317,7 +317,7 @@ export default function StudentView({ defaultRoomCode = '' }) {
                 disabled={joining}
                 className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-black text-sm rounded-2xl shadow-xl shadow-emerald-600/30 transition-all transform active:scale-95 disabled:opacity-50"
               >
-                {joining ? 'Connecting to Room...' : 'Enter Game'}
+                {joining ? 'Connecting to Room...' : 'Join Class Activity'}
               </button>
             </form>
           </div>
@@ -523,7 +523,7 @@ export default function StudentView({ defaultRoomCode = '' }) {
               onClick={() => setState('ENTRY')}
               className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl border border-slate-700"
             >
-              Play Another Game
+              Join Another Class Activity
             </button>
           </div>
         )}

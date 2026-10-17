@@ -226,7 +226,7 @@ export default function PresenterView({ socket, initialRoomData, onExitSession }
             type="button"
             onClick={toggleSound}
             className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-xl border border-slate-700 transition-colors"
-            title={isMuted ? 'Unmute game sounds' : 'Mute game sounds'}
+            title={isMuted ? 'Unmute sound effects' : 'Mute sound effects'}
           >
             {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
           </button>
@@ -277,7 +277,7 @@ export default function PresenterView({ socket, initialRoomData, onExitSession }
 
                 <div className="flex flex-wrap items-center gap-6 pt-2">
                   <div>
-                    <div className="text-xs text-slate-400 uppercase font-semibold mb-1">Game PIN</div>
+                    <div className="text-xs text-slate-400 uppercase font-semibold mb-1">Session PIN</div>
                     <div className="text-5xl sm:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-violet-300 to-indigo-200 tracking-widest font-mono">
                       {roomCode}
                     </div>
