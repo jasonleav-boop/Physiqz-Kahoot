@@ -72,22 +72,68 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
 });
 
 // -------------------------------------------------------------
-// Admin Tutor Management Routes (Jason Leav / Admin Only)
+// Admin & Lead Lecturer Management Routes
 // -------------------------------------------------------------
 const requireAdmin = (req, res, next) => {
-  const isAdmin = req.tutor?.is_admin || (req.tutor?.email?.toLowerCase() === 'jasonleav@gmail.com');
+  const isAdmin = req.tutor?.is_admin || req.tutor?.role === 'admin' || (req.tutor?.email?.toLowerCase() === 'jasonleav@gmail.com');
   if (!isAdmin) {
     return res.status(403).json({ error: 'Admin privileges required.' });
   }
   next();
 };
 
-app.get('/api/admin/tutors', authenticateToken, requireAdmin, (req, res) => {
+const requireLeadOrAdmin = (req, res, next) => {
+  const isAuthorized = req.tutor?.is_admin ||
+    req.tutor?.role === 'admin' ||
+    req.tutor?.role === 'lead' ||
+    (req.tutor?.email?.toLowerCase() === 'jasonleav@gmail.com');
+  if (!isAuthorized) {
+    return res.status(403).json({ error: 'Lead Lecturer or Admin privileges required.' });
+  }
+  next();
+};
+
+app.get('/api/admin/tutors', authenticateToken, requireLeadOrAdmin, (req, res) => {
   try {
     const tutors = db.prepare('SELECT id, name, email, is_admin, role, created_at FROM tutors ORDER BY created_at DESC').all();
+
+    // Enrich each tutor with real progress metrics across quizzes, sessions, and attendance
+    const enrichedTutors = tutors.map(t => {
+      const quizStats = db.prepare(`
+        SELECT COUNT(*) as total_quizzes,
+               SUM(CASE WHEN is_shared = 1 THEN 1 ELSE 0 END) as shared_quizzes
+        FROM quizzes WHERE tutor_id = ?
+      `).get(t.id);
+
+      const sessionStats = db.prepare(`
+        SELECT COUNT(*) as total_sessions,
+               COALESCE(SUM(total_participants), 0) as total_students,
+               MAX(started_at) as last_session_at
+        FROM sessions WHERE tutor_id = ?
+      `).get(t.id);
+
+      const attendanceStats = db.prepare(`
+        SELECT COUNT(*) as total_attendance_sessions,
+               MAX(created_at) as last_attendance_at
+        FROM attendance_sessions WHERE tutor_id = ?
+      `).get(t.id);
+
+      return {
+        ...t,
+        stats: {
+          totalQuizzes: quizStats.total_quizzes || 0,
+          sharedQuizzes: quizStats.shared_quizzes || 0,
+          totalSessions: sessionStats.total_sessions || 0,
+          totalStudents: sessionStats.total_students || 0,
+          totalAttendanceSessions: attendanceStats.total_attendance_sessions || 0,
+          lastActive: sessionStats.last_session_at || attendanceStats.last_attendance_at || t.created_at
+        }
+      };
+    });
+
     const setting = db.prepare("SELECT value FROM system_settings WHERE key = 'tutor_invite_code'").get();
     const inviteCode = setting ? setting.value : 'TECHNO-2026';
-    res.json({ tutors, inviteCode });
+    res.json({ tutors: enrichedTutors, inviteCode });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

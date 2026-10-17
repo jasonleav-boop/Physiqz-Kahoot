@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Play, Plus, Download, Upload, Copy, Check, Trash2, Edit3,
   Share2, Sparkles, BookOpen, Clock, AlertCircle, Lock, Key, Bot, Loader2,
-  ShieldCheck, Users, UserPlus, UserX, X, RefreshCw
+  ShieldCheck, Users, UserPlus, UserX, X, RefreshCw, UserCheck
 } from 'lucide-react';
 
 export default function TutorDashboard({
@@ -498,15 +498,15 @@ export default function TutorDashboard({
             <span>Import Code</span>
           </button>
 
-          {isAdmin && (
+          {(isAdmin || isLeadLecturer) && (
             <button
               type="button"
               onClick={handleOpenAdminModal}
               className="flex items-center gap-2 px-3.5 py-2.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-xs sm:text-sm rounded-xl border border-amber-500/30 transition-all transform active:scale-95 shadow-sm"
-              title="Manage authorized tutors and registration invite codes"
+              title="View faculty activity, progress, and authorized tutors"
             >
               <ShieldCheck className="w-4 h-4 text-amber-400" />
-              <span>Tutor Access & Codes</span>
+              <span>{isAdmin ? 'Tutor Progress & Access' : 'Department Faculty Progress'}</span>
             </button>
           )}
         </div>
@@ -723,26 +723,24 @@ export default function TutorDashboard({
                         <span>Edit Studio</span>
                       </button>
 
-                      {/* Lead Lecturer / Admin: Share with Department */}
-                      {isLeadLecturer && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShareModalQuiz(quiz);
-                            setShareSubject(quiz.subject || 'Electricity');
-                            setShareClassType(quiz.class_type || 'TD');
-                          }}
-                          className={`py-1.5 px-2 text-xs font-semibold rounded-lg border flex items-center justify-center gap-1 transition-colors ${
-                            quiz.is_shared
-                              ? 'bg-violet-950/40 border-violet-500/40 text-violet-300 hover:bg-violet-900/50'
-                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                          }`}
-                          title={quiz.is_shared ? 'Manage department sharing' : 'Share with Department Library'}
-                        >
-                          <Share2 className="w-3 h-3 text-violet-400" />
-                          <span>{quiz.is_shared ? 'Shared' : 'Share'}</span>
-                        </button>
-                      )}
+                      {/* Share with Department */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShareModalQuiz(quiz);
+                          setShareSubject(quiz.subject || 'Electricity');
+                          setShareClassType(quiz.class_type || 'TD');
+                        }}
+                        className={`py-1.5 px-2 text-xs font-semibold rounded-lg border flex items-center justify-center gap-1 transition-colors ${
+                          quiz.is_shared
+                            ? 'bg-violet-950/40 border-violet-500/40 text-violet-300 hover:bg-violet-900/50'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                        }`}
+                        title={quiz.is_shared ? 'Manage department sharing' : 'Share with Department Library'}
+                      >
+                        <Share2 className="w-3 h-3 text-violet-400" />
+                        <span>{quiz.is_shared ? 'Shared' : 'Share to Dept'}</span>
+                      </button>
 
                       <button
                         type="button"
@@ -1228,113 +1226,121 @@ export default function TutorDashboard({
               </div>
             )}
 
-            {/* Section 1: Tutor Invite / Access Code */}
-            <div className="p-4 bg-slate-800/60 border border-slate-700/60 rounded-2xl space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Public Registration Access Code</span>
-                  </h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Colleagues MUST enter this secret code on the signup page to create an account.
-                  </p>
+            {/* Section 1: Tutor Invite / Access Code (Admin Only) */}
+            {isAdmin && (
+              <div className="p-4 bg-slate-800/60 border border-slate-700/60 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                      <Key className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Public Registration Access Code</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Colleagues MUST enter this secret code on the signup page to create an account.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm font-bold text-amber-300 px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                      {currentInviteCode}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleCopyInviteCode}
+                      className="p-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors text-xs flex items-center gap-1"
+                      title="Copy code"
+                    >
+                      {copiedInvite ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedInvite ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-sm font-bold text-amber-300 px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                    {currentInviteCode}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleCopyInviteCode}
-                    className="p-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors text-xs flex items-center gap-1"
-                    title="Copy code"
-                  >
-                    {copiedInvite ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedInvite ? 'Copied' : 'Copy'}</span>
-                  </button>
-                </div>
-              </div>
 
-              {/* Update Code Form */}
-              <form onSubmit={handleUpdateInviteCode} className="flex gap-2 pt-2 border-t border-slate-700/50">
-                <input
-                  type="text"
-                  required
-                  value={newInviteCodeInput}
-                  onChange={(e) => setNewInviteCodeInput(e.target.value.toUpperCase())}
-                  placeholder="Change to new code (e.g. PHYSICS-2026)"
-                  className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-xs font-mono text-white placeholder-slate-500 uppercase focus:outline-none focus:border-amber-400"
-                />
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl transition-colors"
-                >
-                  Save New Code
-                </button>
-              </form>
-            </div>
-
-            {/* Section 2: Create Tutor Directly */}
-            <div className="p-4 bg-slate-800/60 border border-slate-700/60 rounded-2xl space-y-3">
-              <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                <UserPlus className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Create Tutor Account Directly</span>
-              </h4>
-              <p className="text-[11px] text-slate-400">
-                Create an account for a fellow tutor directly without needing to give them the invite code.
-              </p>
-
-              <form onSubmit={handleAdminCreateTutor} className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2">
-                <input
-                  type="text"
-                  required
-                  value={adminNewName}
-                  onChange={(e) => setAdminNewName(e.target.value)}
-                  placeholder="Tutor Name / Title"
-                  className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                />
-                <input
-                  type="email"
-                  required
-                  value={adminNewEmail}
-                  onChange={(e) => setAdminNewEmail(e.target.value)}
-                  placeholder="Tutor Email"
-                  className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                />
-                <input
-                  type="password"
-                  required
-                  value={adminNewPassword}
-                  onChange={(e) => setAdminNewPassword(e.target.value)}
-                  placeholder="Password"
-                  className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                />
-                <div className="sm:col-span-3 flex justify-end">
+                {/* Update Code Form */}
+                <form onSubmit={handleUpdateInviteCode} className="flex gap-2 pt-2 border-t border-slate-700/50">
+                  <input
+                    type="text"
+                    required
+                    value={newInviteCodeInput}
+                    onChange={(e) => setNewInviteCodeInput(e.target.value.toUpperCase())}
+                    placeholder="Change to new code (e.g. PHYSICS-2026)"
+                    className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-xs font-mono text-white placeholder-slate-500 uppercase focus:outline-none focus:border-amber-400"
+                  />
                   <button
                     type="submit"
-                    disabled={adminSubmitting}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow transition-colors flex items-center gap-1.5"
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl transition-colors"
                   >
-                    <UserPlus className="w-3.5 h-3.5" />
-                    <span>{adminSubmitting ? 'Creating...' : 'Create Tutor Account'}</span>
+                    Save New Code
                   </button>
-                </div>
-              </form>
-            </div>
+                </form>
+              </div>
+            )}
 
-            {/* Section 3: Registered Tutors List */}
+            {/* Section 2: Create Tutor Directly (Admin Only) */}
+            {isAdmin && (
+              <div className="p-4 bg-slate-800/60 border border-slate-700/60 rounded-2xl space-y-3">
+                <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                  <UserPlus className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Create Tutor Account Directly</span>
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  Create an account for a fellow tutor directly without needing to give them the invite code.
+                </p>
+
+                <form onSubmit={handleAdminCreateTutor} className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2">
+                  <input
+                    type="text"
+                    required
+                    value={adminNewName}
+                    onChange={(e) => setAdminNewName(e.target.value)}
+                    placeholder="Tutor Name / Title"
+                    className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                  <input
+                    type="email"
+                    required
+                    value={adminNewEmail}
+                    onChange={(e) => setAdminNewEmail(e.target.value)}
+                    placeholder="Tutor Email"
+                    className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                  <input
+                    type="password"
+                    required
+                    value={adminNewPassword}
+                    onChange={(e) => setAdminNewPassword(e.target.value)}
+                    placeholder="Password"
+                    className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                  <div className="sm:col-span-3 flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={adminSubmitting}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow transition-colors flex items-center gap-1.5"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>{adminSubmitting ? 'Creating...' : 'Create Tutor Account'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* Section 3: Department Faculty & Tutor Progress List */}
             <div className="space-y-2">
-              <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                <Users className="w-3.5 h-3.5 text-slate-400" />
-                <span>Authorized Tutors ({adminTutorsList.length})</span>
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Department Faculty & Tutor Progress ({adminTutorsList.length})</span>
+                </h4>
+                <span className="text-[11px] text-slate-400">Live activity tracked across Physics sessions</span>
+              </div>
+
               <div className="divide-y divide-slate-800 border border-slate-800 rounded-2xl overflow-hidden bg-slate-900/50">
                 {adminTutorsList.map((t) => {
                   const isPrimary = t.email.toLowerCase() === 'jasonleav@gmail.com';
                   return (
-                    <div key={t.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-800/40 transition-colors">
-                      <div>
+                    <div key={t.id} className="p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-slate-800/40 transition-colors">
+                      <div className="space-y-1.5">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-white">{t.name}</span>
                           {isPrimary ? (
@@ -1354,10 +1360,26 @@ export default function TutorDashboard({
                           )}
                         </div>
                         <div className="text-[11px] text-slate-400">{t.email}</div>
+
+                        {/* Real-time Activity & Progress Metrics */}
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
+                          <span className="px-2 py-0.5 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 flex items-center gap-1 font-medium">
+                            <BookOpen className="w-3 h-3 text-indigo-400" />
+                            <span>{t.stats?.totalQuizzes || 0} Quizzes ({t.stats?.sharedQuizzes || 0} Shared)</span>
+                          </span>
+                          <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 flex items-center gap-1 font-medium">
+                            <Play className="w-3 h-3 text-emerald-400" />
+                            <span>{t.stats?.totalSessions || 0} Live Sessions ({t.stats?.totalStudents || 0} Students)</span>
+                          </span>
+                          <span className="px-2 py-0.5 rounded-lg bg-violet-500/10 text-violet-300 border border-violet-500/20 flex items-center gap-1 font-medium">
+                            <UserCheck className="w-3 h-3 text-violet-400" />
+                            <span>{t.stats?.totalAttendanceSessions || 0} Attendance Sheets</span>
+                          </span>
+                        </div>
                       </div>
 
-                      {!isPrimary && (
-                        <div className="flex items-center gap-2 self-end sm:self-center">
+                      {isAdmin && !isPrimary && (
+                        <div className="flex items-center gap-2 self-end md:self-center shrink-0">
                           <select
                             value={t.role || 'tutor'}
                             onChange={(e) => handleUpdateRole(t.id, e.target.value)}
