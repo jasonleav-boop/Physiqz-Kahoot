@@ -2,8 +2,8 @@
 node_modules/
 client/node_modules/
 
-# Production build artifacts (Render/Vercel will build these via 'npm run build')
-client/dist/
+# Production build artifacts
+# client/dist/
 
 # SQLite Database & Storage (Local database files)
 *.db
