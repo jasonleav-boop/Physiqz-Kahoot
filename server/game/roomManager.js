@@ -15,10 +15,13 @@ class RoomManager {
     return code;
   }
 
-  // Create a new game room hosted by tutor
-  createRoom(tutorId, tutorSocketId, quiz, passcode = null) {
+  // Create a new session room hosted by tutor
+  createRoom(tutorId, tutorSocketId, quiz, passcode = null, mode = 'LECTURER_PACED', totalTimeMinutes = 10) {
     const roomCode = this.generateRoomCode();
     const cleanPasscode = passcode && String(passcode).trim() ? String(passcode).trim() : null;
+    const cleanMode = (mode === 'STUDENT_PACED') ? 'STUDENT_PACED' : 'LECTURER_PACED';
+    const durationMins = Math.max(1, parseInt(totalTimeMinutes, 10) || 10);
+    const totalDurationSeconds = durationMins * 60;
 
     // Insert session into SQLite
     const insertSession = db.prepare(`
@@ -35,16 +38,20 @@ class RoomManager {
       tutorSocketId,
       quiz,
       passcode: cleanPasscode,
+      mode: cleanMode,
+      totalTimeMinutes: durationMins,
+      totalDurationSeconds,
       isLocked: false,
-      state: 'LOBBY', // LOBBY | QUESTION | REVEAL | LEADERBOARD | PODIUM
+      state: 'LOBBY', // LOBBY | QUESTION | REVEAL | LEADERBOARD | PODIUM | SELF_PACED_ACTIVE | SELF_PACED_ENDED
       currentQuestionIndex: -1,
       questionStartTime: null,
-      timeLimit: 0,
-      timeRemaining: 0,
+      sessionStartTime: null,
+      timeLimit: cleanMode === 'STUDENT_PACED' ? totalDurationSeconds : 0,
+      timeRemaining: cleanMode === 'STUDENT_PACED' ? totalDurationSeconds : 0,
       timerInterval: null,
       // Map of socketId -> student
       participants: new Map(),
-      // Current question live answers: socketId -> { option, timeTakenMs, isCorrect, points }
+      // Current question live answers (Lecturer-paced): socketId -> { option, timeTakenMs, isCorrect, points }
       currentAnswers: new Map(),
       // Answer distribution tally for current question: { 0: count, 1: count, ... }
       currentDistribution: {}
@@ -94,7 +101,7 @@ class RoomManager {
       throw new Error('Room not found. Please verify the 6-digit PIN.');
     }
 
-    if (room.state !== 'LOBBY' && room.state !== 'QUESTION' && room.state !== 'REVEAL' && room.state !== 'LEADERBOARD') {
+    if (room.state !== 'LOBBY' && room.state !== 'QUESTION' && room.state !== 'REVEAL' && room.state !== 'LEADERBOARD' && room.state !== 'SELF_PACED_ACTIVE') {
       throw new Error('This session has already concluded.');
     }
 
@@ -139,7 +146,9 @@ class RoomManager {
       score: 0,
       streak: 0,
       correctCount: 0,
-      answers: {} // questionIndex -> { option, timeTakenMs, isCorrect, points }
+      answers: {}, // questionIndex -> { option, timeTakenMs, isCorrect, points } OR { option }
+      isSubmitted: false,
+      submittedAt: null
     };
 
     room.participants.set(socketId, participant);
@@ -413,6 +422,179 @@ class RoomManager {
       },
       allRankings
     };
+  }
+
+  // -------------------------------------------------------------
+  // Self-Paced (Total Time / Independent Problem Set) Handlers
+  // -------------------------------------------------------------
+
+  // Start self-paced session
+  startSelfPacedSession(roomCode) {
+    const room = this.rooms.get(roomCode);
+    if (!room) return null;
+
+    room.state = 'SELF_PACED_ACTIVE';
+    room.sessionStartTime = Date.now();
+    room.timeLimit = room.totalDurationSeconds;
+    room.timeRemaining = room.totalDurationSeconds;
+
+    // Sanitize questions for student devices (hide isCorrect and explanation)
+    const sanitizedQuestions = room.quiz.questions.map((q, idx) => ({
+      index: idx,
+      type: q.type || 'multiple_choice',
+      question: q.question,
+      imageUrl: q.imageUrl || null,
+      points: Number(q.points) || 10,
+      options: (q.options || []).map(opt => ({ text: opt.text }))
+    }));
+
+    return {
+      room,
+      sanitizedQuestions,
+      totalDurationSeconds: room.totalDurationSeconds,
+      quizTitle: room.quiz.title,
+      totalQuestions: room.quiz.questions.length
+    };
+  }
+
+  // Record or update intermediate answer from student
+  updateSelfPacedAnswer(roomCode, socketId, questionIndex, selectedOption) {
+    const room = this.rooms.get(roomCode);
+    if (!room || room.state !== 'SELF_PACED_ACTIVE') {
+      return { error: 'Session is not active.' };
+    }
+
+    const participant = room.participants.get(socketId);
+    if (!participant) {
+      return { error: 'Participant not in session.' };
+    }
+
+    if (participant.isSubmitted) {
+      return { error: 'Activity already submitted.' };
+    }
+
+    // Save answer selection
+    participant.answers[questionIndex] = {
+      option: selectedOption,
+      updatedAt: Date.now()
+    };
+
+    const answeredCount = Object.keys(participant.answers).length;
+    return {
+      success: true,
+      answeredCount,
+      totalQuestions: room.quiz.questions.length,
+      participant: {
+        socketId,
+        studentName: participant.studentName,
+        studentId: participant.studentId,
+        avatar: participant.avatar,
+        answeredCount,
+        isSubmitted: false
+      }
+    };
+  }
+
+  // Student explicitly submits their activity
+  submitSelfPacedStudent(roomCode, socketId) {
+    const room = this.rooms.get(roomCode);
+    if (!room) return { error: 'Room not found.' };
+
+    const participant = room.participants.get(socketId);
+    if (!participant) return { error: 'Participant not in session.' };
+
+    participant.isSubmitted = true;
+    participant.submittedAt = Date.now();
+
+    const answeredCount = Object.keys(participant.answers).length;
+    return {
+      success: true,
+      participant: {
+        socketId,
+        studentName: participant.studentName,
+        studentId: participant.studentId,
+        avatar: participant.avatar,
+        answeredCount,
+        totalQuestions: room.quiz.questions.length,
+        isSubmitted: true
+      }
+    };
+  }
+
+  // Get live progress for presenter screen
+  getSelfPacedProgress(roomCode) {
+    const room = this.rooms.get(roomCode);
+    if (!room) return null;
+
+    const totalQuestions = room.quiz.questions.length;
+    const roster = Array.from(room.participants.values()).map(p => ({
+      socketId: p.socketId,
+      studentName: p.studentName,
+      studentId: p.studentId,
+      avatar: p.avatar,
+      answeredCount: Object.keys(p.answers).length,
+      totalQuestions,
+      isSubmitted: !!p.isSubmitted
+    }));
+
+    const submittedCount = roster.filter(p => p.isSubmitted).length;
+
+    return {
+      roster,
+      submittedCount,
+      totalParticipants: roster.length,
+      totalQuestions,
+      timeRemaining: room.timeRemaining
+    };
+  }
+
+  // Finish self-paced session, grade according to tutor's exact question points, persist to SQLite
+  finishSelfPacedSession(roomCode) {
+    const room = this.rooms.get(roomCode);
+    if (!room) return null;
+
+    room.state = 'PODIUM';
+
+    if (room.timerInterval) {
+      clearInterval(room.timerInterval);
+      room.timerInterval = null;
+    }
+
+    // Grade each participant
+    for (const participant of room.participants.values()) {
+      participant.score = 0;
+      participant.correctCount = 0;
+
+      room.quiz.questions.forEach((q, qIdx) => {
+        const tutorPoints = Number(q.points) || 10;
+        const ansRecord = participant.answers[qIdx];
+        const studentOption = ansRecord !== undefined ? (typeof ansRecord === 'object' ? ansRecord.option : ansRecord) : null;
+
+        let isCorrect = false;
+        if (q.type === 'poll') {
+          isCorrect = studentOption !== null && studentOption !== undefined;
+        } else {
+          const correctOpt = q.options ? q.options.findIndex(opt => opt.isCorrect) : -1;
+          isCorrect = studentOption === correctOpt;
+        }
+
+        const pointsAwarded = isCorrect ? tutorPoints : 0;
+        if (isCorrect) {
+          participant.correctCount += 1;
+          participant.score += pointsAwarded;
+        }
+
+        participant.answers[qIdx] = {
+          option: studentOption,
+          isCorrect,
+          points: pointsAwarded,
+          timeTakenMs: 0
+        };
+      });
+    }
+
+    // Call finishGame to handle ranking and database insertion
+    return this.finishGame(roomCode);
   }
 
   // Close room completely

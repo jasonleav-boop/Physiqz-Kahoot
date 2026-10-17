@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import {
   Users, Play, FastForward, Trophy, Volume2, VolumeX,
   X, CheckCircle2, HelpCircle, ArrowRight, Sparkles, Smartphone,
-  Lock, Unlock, Key, Wifi
+  Lock, Unlock, Key, Wifi, Clock
 } from 'lucide-react';
 import LatexRenderer from '../components/LatexRenderer';
 import LiveBarChart from '../components/LiveBarChart';
@@ -24,7 +24,10 @@ export default function PresenterView({ socket, initialRoomData, onExitSession }
   const [quizTitle, setQuizTitle] = useState(initialRoomData?.quizTitle || 'Physics Quiz');
   const [passcode, setPasscode] = useState(initialRoomData?.passcode || null);
   const [isLocked, setIsLocked] = useState(!!initialRoomData?.isLocked);
-  const [gameState, setGameState] = useState('LOBBY'); // LOBBY | QUESTION | REVEAL | LEADERBOARD | PODIUM
+  const [sessionMode, setSessionMode] = useState(initialRoomData?.mode || 'LECTURER_PACED');
+  const [totalTimeMinutes, setTotalTimeMinutes] = useState(initialRoomData?.totalTimeMinutes || 10);
+  const [selfPacedProgress, setSelfPacedProgress] = useState(null);
+  const [gameState, setGameState] = useState('LOBBY'); // LOBBY | QUESTION | REVEAL | LEADERBOARD | PODIUM | SELF_PACED_ACTIVE
   const [participants, setParticipants] = useState([]);
   const [totalParticipants, setTotalParticipants] = useState(0);
   const [serverInfo, setServerInfo] = useState(null);
@@ -142,6 +145,32 @@ export default function PresenterView({ socket, initialRoomData, onExitSession }
       setIsLocked(locked);
     });
 
+    // Self-paced session start
+    socket.on('self-paced:started', (data) => {
+      setGameState('SELF_PACED_ACTIVE');
+      setTimeRemaining(data.totalDurationSeconds);
+      setSelfPacedProgress({
+        roster: data.roster?.roster || [],
+        submittedCount: data.roster?.submittedCount || 0,
+        totalParticipants: data.roster?.totalParticipants || 0,
+        totalQuestions: data.totalQuestions,
+        timeRemaining: data.totalDurationSeconds
+      });
+    });
+
+    // Self-paced live student progress
+    socket.on('host:self-paced-progress', (progress) => {
+      setSelfPacedProgress(progress);
+      if (typeof progress.timeRemaining === 'number') {
+        setTimeRemaining(progress.timeRemaining);
+      }
+    });
+
+    // All students submitted notification
+    socket.on('host:all-submitted', () => {
+      soundEffects.correct();
+    });
+
     return () => {
       socket.off('host:roster-update');
       socket.off('timer:tick');
@@ -151,12 +180,25 @@ export default function PresenterView({ socket, initialRoomData, onExitSession }
       socket.off('leaderboard:update');
       socket.off('game:podium');
       socket.off('host:lock-status');
+      socket.off('self-paced:started');
+      socket.off('host:self-paced-progress');
+      socket.off('host:all-submitted');
     };
   }, [socket]);
 
   // Tutor host controls
   const handleStartGame = () => {
-    socket.emit('host:next-question', { roomCode });
+    if (sessionMode === 'STUDENT_PACED') {
+      socket.emit('host:start-self-paced', { roomCode });
+    } else {
+      socket.emit('host:next-question', { roomCode });
+    }
+  };
+
+  const handleEndSelfPacedEarly = () => {
+    if (window.confirm('Are you sure you want to end the student-paced session now? All completed student responses will be graded immediately.')) {
+      socket.emit('host:end-self-paced', { roomCode });
+    }
   };
 
   const handleNextQuestion = () => {
@@ -191,6 +233,13 @@ export default function PresenterView({ socket, initialRoomData, onExitSession }
   };
 
   const displayHost = serverInfo?.bestJoinUrl ? serverInfo.bestJoinUrl.replace(/^https?:\/\//, '') : window.location.host;
+
+  const formatTime = (seconds) => {
+    const s = Math.max(0, Number(seconds) || 0);
+    const mins = Math.floor(s / 60);
+    const secs = s % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between selection:bg-indigo-500 selection:text-white">
@@ -256,6 +305,16 @@ export default function PresenterView({ socket, initialRoomData, onExitSession }
                   <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full text-xs font-bold uppercase tracking-wider">
                     <Smartphone className="w-3.5 h-3.5" /> Fast Mobile Entry
                   </div>
+                  {sessionMode === 'STUDENT_PACED' ? (
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full text-xs font-bold">
+                      <Clock className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Student-Paced Problem Set ({totalTimeMinutes} min limit)</span>
+                    </div>
+                  ) : (
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full text-xs font-bold">
+                      <span>👨‍🏫 Lecturer-Paced Discussion</span>
+                    </div>
+                  )}
                   {serverInfo?.localIp && (
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-800 text-slate-300 border border-slate-700 rounded-full text-xs font-mono">
                       <Wifi className="w-3 h-3 text-emerald-400" />
@@ -306,7 +365,11 @@ export default function PresenterView({ socket, initialRoomData, onExitSession }
                     className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-black text-base rounded-2xl shadow-xl shadow-emerald-600/30 transition-all transform active:scale-95 disabled:opacity-40"
                   >
                     <Play className="w-5 h-5 fill-white" />
-                    <span>Start Quiz ({participants.length} Ready)</span>
+                    <span>
+                      {sessionMode === 'STUDENT_PACED'
+                        ? `Start Problem Set (${participants.length} Ready)`
+                        : `Start Quiz (${participants.length} Ready)`}
+                    </span>
                   </button>
 
                   <button
@@ -542,6 +605,177 @@ export default function PresenterView({ socket, initialRoomData, onExitSession }
                 </span>
                 <ArrowRight className="w-5 h-5" />
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* PHASE 4.5: SELF-PACED ACTIVE CLASS MONITOR */}
+        {/* ======================================================== */}
+        {gameState === 'SELF_PACED_ACTIVE' && (
+          <div className="w-full max-w-6xl space-y-8 animate-pop">
+            {/* Top Monitor Dashboard */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 backdrop-blur shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6">
+              <div className="space-y-1 text-center md:text-left">
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full text-xs font-bold uppercase tracking-wider">
+                  <Clock className="w-3.5 h-3.5" /> Student-Paced Problem Set
+                </div>
+                <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+                  {quizTitle}
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-400">
+                  Students are solving problems at their own pace on mobile.
+                </p>
+              </div>
+
+              {/* Big Digital Countdown Timer */}
+              <div className="flex flex-col items-center">
+                <div className="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Time Remaining</span>
+                </div>
+                <div className={`px-6 py-3 rounded-2xl font-mono font-black text-4xl sm:text-5xl border-2 shadow-xl tracking-wider transition-all ${
+                  timeRemaining <= 60
+                    ? 'bg-rose-950/80 border-rose-500 text-rose-400 animate-pulse shadow-rose-900/40'
+                    : timeRemaining <= 180
+                    ? 'bg-amber-950/70 border-amber-500 text-amber-300 shadow-amber-900/30'
+                    : 'bg-indigo-950/70 border-indigo-500 text-indigo-200 shadow-indigo-900/30'
+                }`}>
+                  {formatTime(timeRemaining)}
+                </div>
+              </div>
+
+              {/* End Early Control Button */}
+              <button
+                type="button"
+                onClick={handleEndSelfPacedEarly}
+                className="flex items-center gap-2 px-6 py-3.5 bg-rose-600/90 hover:bg-rose-500 text-white font-bold text-sm rounded-2xl shadow-xl shadow-rose-600/30 border border-rose-500 transition-all transform active:scale-95"
+              >
+                <FastForward className="w-4 h-4" />
+                <span>End Activity & Grade</span>
+              </button>
+            </div>
+
+            {/* Quick Metrics Strip */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 flex flex-col items-center text-center">
+                <span className="text-xs font-bold text-slate-400 uppercase">Submissions</span>
+                <span className="text-2xl sm:text-3xl font-black text-emerald-400 mt-1">
+                  {selfPacedProgress?.submittedCount || 0} / {selfPacedProgress?.totalParticipants || participants.length}
+                </span>
+                <span className="text-[11px] text-slate-500 mt-0.5">Finished & Submitted</span>
+              </div>
+
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 flex flex-col items-center text-center">
+                <span className="text-xs font-bold text-slate-400 uppercase">Active Solvers</span>
+                <span className="text-2xl sm:text-3xl font-black text-amber-300 mt-1">
+                  {Math.max(0, (selfPacedProgress?.totalParticipants || participants.length) - (selfPacedProgress?.submittedCount || 0))}
+                </span>
+                <span className="text-[11px] text-slate-500 mt-0.5">Still Solving</span>
+              </div>
+
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 flex flex-col items-center text-center">
+                <span className="text-xs font-bold text-slate-400 uppercase">Total Problems</span>
+                <span className="text-2xl sm:text-3xl font-black text-indigo-300 mt-1">
+                  {selfPacedProgress?.totalQuestions || 0}
+                </span>
+                <span className="text-[11px] text-slate-500 mt-0.5">Custom Tutor Questions</span>
+              </div>
+
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 flex flex-col items-center text-center">
+                <span className="text-xs font-bold text-slate-400 uppercase">Room PIN</span>
+                <span className="text-2xl sm:text-3xl font-black text-white font-mono mt-1">
+                  {roomCode}
+                </span>
+                <span className="text-[11px] text-slate-500 mt-0.5">Live Session Code</span>
+              </div>
+            </div>
+
+            {/* Student Live Progress Cards */}
+            <div className="bg-slate-900/70 border border-slate-800 rounded-3xl p-6 sm:p-8 backdrop-blur space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <Users className="w-5 h-5 text-indigo-400" />
+                  <h3 className="text-lg font-bold text-white">
+                    Live Student Problem Progress
+                  </h3>
+                </div>
+                <span className="text-xs text-slate-400">
+                  Updates in real-time as students answer
+                </span>
+              </div>
+
+              {(!selfPacedProgress?.roster || selfPacedProgress.roster.length === 0) ? (
+                <div className="text-center py-12 text-slate-500 text-sm flex flex-col items-center gap-2">
+                  <Users className="w-8 h-8 text-indigo-400/50 animate-pulse" />
+                  <span>No students in room yet.</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {selfPacedProgress.roster.map((st) => {
+                    const totalQ = st.totalQuestions || selfPacedProgress.totalQuestions || 1;
+                    const answered = st.answeredCount || 0;
+                    const percent = Math.min(100, Math.round((answered / totalQ) * 100));
+
+                    return (
+                      <div
+                        key={st.socketId}
+                        className={`p-4 rounded-2xl border transition-all ${
+                          st.isSubmitted
+                            ? 'bg-emerald-950/30 border-emerald-500/50 shadow-emerald-900/20'
+                            : 'bg-slate-800/80 border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2.5 truncate">
+                            <span className="text-2xl">{st.avatar || '⚛️'}</span>
+                            <div className="truncate">
+                              <div className="font-bold text-sm text-white truncate">
+                                {st.studentName}
+                              </div>
+                              {st.studentId && (
+                                <div className="text-[10px] text-slate-400 font-mono">
+                                  ID: {st.studentId}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {st.isSubmitted ? (
+                            <span className="shrink-0 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Submitted
+                            </span>
+                          ) : (
+                            <span className="shrink-0 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" /> Solving
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-slate-400 font-medium">Answered:</span>
+                            <span className="font-mono font-bold text-white">
+                              {answered} / {totalQ} ({percent}%)
+                            </span>
+                          </div>
+                          <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-700/60">
+                            <div
+                              className={`h-full transition-all duration-500 rounded-full ${
+                                st.isSubmitted
+                                  ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                                  : 'bg-gradient-to-r from-indigo-500 to-violet-500'
+                              }`}
+                              style={{ width: `${percent}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}

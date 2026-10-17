@@ -6,14 +6,14 @@ function setupSocketHandlers(io) {
     // Host / Presenter Handlers
     // ---------------------------------------------------------
 
-    // Host creates a live game room
-    socket.on('host:create-room', ({ tutorId, quiz, passcode }, callback) => {
+    // Host creates a live session room
+    socket.on('host:create-room', ({ tutorId, quiz, passcode, mode, totalTimeMinutes }, callback) => {
       try {
         if (!quiz || !quiz.questions || quiz.questions.length === 0) {
           return callback({ error: 'Quiz must have at least one question.' });
         }
 
-        const room = roomManager.createRoom(tutorId, socket.id, quiz, passcode);
+        const room = roomManager.createRoom(tutorId, socket.id, quiz, passcode, mode, totalTimeMinutes);
         socket.join(room.roomCode);
         socket.join(`host:${room.roomCode}`);
 
@@ -24,6 +24,9 @@ function setupSocketHandlers(io) {
           quizTitle: quiz.title,
           passcode: room.passcode,
           isLocked: room.isLocked,
+          mode: room.mode,
+          totalTimeMinutes: room.totalTimeMinutes,
+          totalDurationSeconds: room.totalDurationSeconds,
           totalQuestions: quiz.questions.length
         });
       } catch (err) {
@@ -172,6 +175,74 @@ function setupSocketHandlers(io) {
       });
     });
 
+    // Helper to finish self-paced session
+    const handleSelfPacedFinish = (roomCode) => {
+      const room = roomManager.getRoom(roomCode);
+      if (!room) return;
+
+      const results = roomManager.finishSelfPacedSession(roomCode);
+      if (!results) return;
+
+      // Broadcast podium & results to everyone
+      io.to(roomCode).emit('game:podium', results);
+
+      // Send personalized scorecard to each student
+      room.participants.forEach((participant, studentSocketId) => {
+        const studentRank = results.allRankings.find(p => p.socketId === studentSocketId);
+        io.to(studentSocketId).emit('self-paced:student-results', {
+          score: participant.score,
+          correctCount: participant.correctCount,
+          totalQuestions: room.quiz.questions.length,
+          rank: studentRank ? studentRank.rank : 1,
+          totalStudents: room.participants.size,
+          answers: participant.answers
+        });
+      });
+    };
+
+    // Host starts self-paced problem set session
+    socket.on('host:start-self-paced', ({ roomCode }) => {
+      const room = roomManager.getRoom(roomCode);
+      if (!room) return;
+
+      const sessionData = roomManager.startSelfPacedSession(roomCode);
+      if (!sessionData) return;
+
+      // Notify host screen
+      io.to(`host:${roomCode}`).emit('self-paced:started', {
+        totalDurationSeconds: sessionData.totalDurationSeconds,
+        totalQuestions: sessionData.totalQuestions,
+        quizTitle: sessionData.quizTitle,
+        roster: roomManager.getSelfPacedProgress(roomCode)
+      });
+
+      // Broadcast full problem set to students (sanitized)
+      io.to(roomCode).emit('self-paced:student-start', {
+        questions: sessionData.sanitizedQuestions,
+        totalDurationSeconds: sessionData.totalDurationSeconds,
+        quizTitle: sessionData.quizTitle,
+        totalQuestions: sessionData.totalQuestions
+      });
+
+      // Start global countdown timer
+      if (room.timerInterval) clearInterval(room.timerInterval);
+      room.timerInterval = setInterval(() => {
+        room.timeRemaining -= 1;
+        io.to(roomCode).emit('timer:tick', { timeRemaining: room.timeRemaining });
+
+        if (room.timeRemaining <= 0) {
+          clearInterval(room.timerInterval);
+          room.timerInterval = null;
+          handleSelfPacedFinish(roomCode);
+        }
+      }, 1000);
+    });
+
+    // Host manually ends self-paced activity early
+    socket.on('host:end-self-paced', ({ roomCode }) => {
+      handleSelfPacedFinish(roomCode);
+    });
+
     // Host shows podium finale
     socket.on('host:show-podium', ({ roomCode }) => {
       const podiumData = roomManager.finishGame(roomCode);
@@ -198,12 +269,13 @@ function setupSocketHandlers(io) {
           totalCount: room.participants.size
         });
 
-        // Send current game state to student
+        // Send current session state to student
         callback({
           success: true,
           roomCode: room.roomCode,
           quizTitle: room.quiz.title,
           gameState: room.state,
+          mode: room.mode,
           participant: {
             studentName: participant.studentName,
             studentId: participant.studentId,
@@ -217,11 +289,26 @@ function setupSocketHandlers(io) {
             question: room.quiz.questions[room.currentQuestionIndex].question,
             type: room.quiz.questions[room.currentQuestionIndex].type,
             imageUrl: room.quiz.questions[room.currentQuestionIndex].imageUrl,
+            points: room.quiz.questions[room.currentQuestionIndex].points || 10,
             options: room.quiz.questions[room.currentQuestionIndex].options.map((opt, i) => ({
               index: i,
               text: opt.text
             })),
             timeRemaining: room.timeRemaining
+          } : null,
+          selfPacedData: room.state === 'SELF_PACED_ACTIVE' ? {
+            questions: room.quiz.questions.map((q, idx) => ({
+              index: idx,
+              type: q.type || 'multiple_choice',
+              question: q.question,
+              imageUrl: q.imageUrl || null,
+              points: Number(q.points) || 10,
+              options: (q.options || []).map(opt => ({ text: opt.text }))
+            })),
+            timeRemaining: room.timeRemaining,
+            totalDurationSeconds: room.totalDurationSeconds,
+            existingAnswers: participant.answers || {},
+            isSubmitted: !!participant.isSubmitted
           } : null
         });
       } catch (err) {
@@ -229,7 +316,7 @@ function setupSocketHandlers(io) {
       }
     });
 
-    // Student submits answer
+    // Student submits answer in Lecturer-Paced mode
     socket.on('student:submit-answer', ({ roomCode, selectedOption }, callback) => {
       const cleanCode = String(roomCode).replace(/\s+/g, '');
       const result = roomManager.submitAnswer(cleanCode, socket.id, selectedOption);
@@ -258,6 +345,39 @@ function setupSocketHandlers(io) {
       // If every student has answered, reveal early!
       if (result.allAnswered) {
         handleReveal(cleanCode);
+      }
+    });
+
+    // Student updates an answer in Student-Paced mode
+    socket.on('student:update-self-paced-answer', ({ roomCode, questionIndex, selectedOption }, callback) => {
+      const cleanCode = String(roomCode).replace(/\s+/g, '');
+      const res = roomManager.updateSelfPacedAnswer(cleanCode, socket.id, questionIndex, selectedOption);
+      if (res && res.success) {
+        const progress = roomManager.getSelfPacedProgress(cleanCode);
+        if (progress) {
+          io.to(`host:${cleanCode}`).emit('host:self-paced-progress', progress);
+        }
+        if (callback) callback({ success: true, answeredCount: res.answeredCount });
+      } else if (callback) {
+        callback({ error: res?.error || 'Failed to record answer' });
+      }
+    });
+
+    // Student submits entire self-paced problem set
+    socket.on('student:submit-self-paced', ({ roomCode }, callback) => {
+      const cleanCode = String(roomCode).replace(/\s+/g, '');
+      const res = roomManager.submitSelfPacedStudent(cleanCode, socket.id);
+      if (res && res.success) {
+        const progress = roomManager.getSelfPacedProgress(cleanCode);
+        if (progress) {
+          io.to(`host:${cleanCode}`).emit('host:self-paced-progress', progress);
+          if (progress.submittedCount >= progress.totalParticipants && progress.totalParticipants > 0) {
+            io.to(`host:${cleanCode}`).emit('host:all-submitted', { submittedCount: progress.submittedCount });
+          }
+        }
+        if (callback) callback({ success: true, isSubmitted: true });
+      } else if (callback) {
+        callback({ error: res?.error || 'Failed to submit' });
       }
     });
 

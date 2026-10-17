@@ -66,7 +66,7 @@ export default function App() {
   };
 
   // Launch live session for a quiz
-  const handleStartSession = async (quiz, passcode = null) => {
+  const handleStartSession = async (quiz, passcode = null, mode = 'LECTURER_PACED', totalTimeMinutes = 10) => {
     try {
       // Connect host socket
       const s = io({ transports: ['websocket', 'polling'] });
@@ -79,7 +79,7 @@ export default function App() {
         })
           .then(res => res.json())
           .then(fullQuiz => {
-            s.emit('host:create-room', { tutorId: tutor.id, quiz: fullQuiz, passcode }, (res) => {
+            s.emit('host:create-room', { tutorId: tutor.id, quiz: fullQuiz, passcode, mode, totalTimeMinutes }, (res) => {
               if (res.error) {
                 alert(res.error);
                 s.disconnect();

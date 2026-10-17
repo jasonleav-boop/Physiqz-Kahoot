@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import {
   Smartphone, User, Hash, CheckCircle2, XCircle, Flame,
-  Trophy, Sparkles, AlertCircle, Eye, EyeOff, Lock
+  Trophy, Sparkles, AlertCircle, Eye, EyeOff, Lock, Clock,
+  ChevronLeft, ChevronRight, Check, Send
 } from 'lucide-react';
 import LatexRenderer from '../components/LatexRenderer';
 import soundEffects from '../utils/soundEffects';
@@ -25,7 +26,7 @@ export default function StudentView({ defaultRoomCode = '' }) {
   const [studentId, setStudentId] = useState('');
   const [selectedAvatar, setSelectedAvatar] = useState('⚛️');
 
-  // Game state on student phone: 'ENTRY' | 'LOBBY' | 'QUESTION' | 'SUBMITTED' | 'ROUND_RESULT' | 'LEADERBOARD' | 'PODIUM'
+  // Game state on student phone: 'ENTRY' | 'LOBBY' | 'QUESTION' | 'SUBMITTED' | 'ROUND_RESULT' | 'LEADERBOARD' | 'PODIUM' | 'SELF_PACED_ACTIVE' | 'SELF_PACED_RESULTS'
   const [state, setState] = useState('ENTRY');
   const [error, setError] = useState('');
   const [joining, setJoining] = useState(false);
@@ -37,11 +38,22 @@ export default function StudentView({ defaultRoomCode = '' }) {
   const [rank, setRank] = useState(1);
   const [totalStudents, setTotalStudents] = useState(1);
 
-  // Active question on mobile
+  // Active question on mobile (Lecturer-Paced)
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [selectedOption, setSelectedOption] = useState(null);
   const [roundResult, setRoundResult] = useState(null);
   const [showQuestionText, setShowQuestionText] = useState(true);
+
+  // Student-Paced mode state
+  const [isSelfPacedMode, setIsSelfPacedMode] = useState(false);
+  const [selfPacedQuestions, setSelfPacedQuestions] = useState([]);
+  const [selfPacedCurrentIndex, setSelfPacedCurrentIndex] = useState(0);
+  const [selfPacedAnswers, setSelfPacedAnswers] = useState({}); // { [qIdx]: selectedOptionIndex }
+  const [isSelfPacedSubmitted, setIsSelfPacedSubmitted] = useState(false);
+  const [selfPacedTimeRemaining, setSelfPacedTimeRemaining] = useState(0);
+  const [selfPacedResults, setSelfPacedResults] = useState(null);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [saveToast, setSaveToast] = useState(false);
 
   // Read URL parameters for auto room-filling and auto-password from QR code
   useEffect(() => {
@@ -75,7 +87,7 @@ export default function StudentView({ defaultRoomCode = '' }) {
       setState('ENTRY');
     });
 
-    // Question start
+    // Question start (Lecturer-Paced)
     s.on('question:start', (qData) => {
       setCurrentQuestion(qData);
       setSelectedOption(null);
@@ -84,7 +96,7 @@ export default function StudentView({ defaultRoomCode = '' }) {
       soundEffects.answerSubmitted();
     });
 
-    // Round result reveal
+    // Round result reveal (Lecturer-Paced)
     s.on('student:round-result', (result) => {
       setRoundResult(result);
       setScore(result.newTotalScore);
@@ -108,6 +120,34 @@ export default function StudentView({ defaultRoomCode = '' }) {
     // Podium finale
     s.on('game:podium', () => {
       setState('PODIUM');
+      soundEffects.fanfare();
+    });
+
+    // Self-paced problem set started by tutor
+    s.on('self-paced:student-start', (data) => {
+      setIsSelfPacedMode(true);
+      setSelfPacedQuestions(data.questions || []);
+      setSelfPacedTimeRemaining(data.totalDurationSeconds || 600);
+      setSelfPacedCurrentIndex(0);
+      setSelfPacedAnswers({});
+      setIsSelfPacedSubmitted(false);
+      setState('SELF_PACED_ACTIVE');
+      soundEffects.answerSubmitted();
+    });
+
+    // Global countdown timer tick
+    s.on('timer:tick', ({ timeRemaining: t }) => {
+      setSelfPacedTimeRemaining(t);
+      if (t <= 5 && t > 0) {
+        soundEffects.tick();
+      }
+    });
+
+    // Self-paced graded scorecard upon session end
+    s.on('self-paced:student-results', (results) => {
+      setSelfPacedResults(results);
+      setScore(results.score || 0);
+      setState('SELF_PACED_RESULTS');
       soundEffects.fanfare();
     });
 
@@ -152,7 +192,19 @@ export default function StudentView({ defaultRoomCode = '' }) {
         setScore(res.participant.score || 0);
         setStreak(res.participant.streak || 0);
 
-        if (res.gameState === 'QUESTION' && res.currentQuestion) {
+        if (res.mode === 'STUDENT_PACED' || res.gameState === 'SELF_PACED_ACTIVE') {
+          setIsSelfPacedMode(true);
+        }
+
+        if (res.selfPacedData) {
+          setIsSelfPacedMode(true);
+          setSelfPacedQuestions(res.selfPacedData.questions || []);
+          setSelfPacedTimeRemaining(res.selfPacedData.timeRemaining || res.selfPacedData.totalDurationSeconds || 600);
+          setSelfPacedAnswers(res.selfPacedData.existingAnswers || {});
+          setIsSelfPacedSubmitted(!!res.selfPacedData.isSubmitted);
+          setSelfPacedCurrentIndex(0);
+          setState('SELF_PACED_ACTIVE');
+        } else if (res.gameState === 'QUESTION' && res.currentQuestion) {
           setCurrentQuestion(res.currentQuestion);
           setState('QUESTION');
         } else {
@@ -162,7 +214,50 @@ export default function StudentView({ defaultRoomCode = '' }) {
     );
   };
 
-  // Submit Answer Choice
+  const formatTime = (seconds) => {
+    const s = Math.max(0, Number(seconds) || 0);
+    const mins = Math.floor(s / 60);
+    const secs = s % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Change or select an answer in Student-Paced mode
+  const handleSelectSelfPacedAnswer = (optIndex) => {
+    if (isSelfPacedSubmitted) return;
+
+    setSelfPacedAnswers((prev) => ({
+      ...prev,
+      [selfPacedCurrentIndex]: optIndex
+    }));
+    setSaveToast(true);
+    setTimeout(() => setSaveToast(false), 800);
+    soundEffects.tick();
+
+    if (socket) {
+      socket.emit('student:update-self-paced-answer', {
+        roomCode,
+        questionIndex: selfPacedCurrentIndex,
+        selectedOption: optIndex
+      });
+    }
+  };
+
+  // Submit all answers in Student-Paced mode
+  const handleConfirmSubmitSelfPaced = () => {
+    setShowSubmitModal(false);
+    if (!socket) return;
+
+    socket.emit('student:submit-self-paced', { roomCode }, (res) => {
+      if (res && res.success) {
+        setIsSelfPacedSubmitted(true);
+        soundEffects.correct();
+      } else if (res && res.error) {
+        alert(res.error);
+      }
+    });
+  };
+
+  // Submit Answer Choice (Lecturer-Paced)
   const handleOptionSelect = (optionIndex) => {
     if (state !== 'QUESTION' || selectedOption !== null) return;
 
@@ -341,7 +436,11 @@ export default function StudentView({ defaultRoomCode = '' }) {
 
             <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
               <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>Waiting for tutor to start the questions...</span>
+              <span>
+                {isSelfPacedMode
+                  ? 'Student-Paced Problem Set — Waiting for tutor to launch...'
+                  : 'Waiting for tutor to start the questions...'}
+              </span>
             </div>
           </div>
         )}
@@ -527,7 +626,309 @@ export default function StudentView({ defaultRoomCode = '' }) {
             </button>
           </div>
         )}
+
+        {/* ======================================================== */}
+        {/* VIEW 8: SELF-PACED ACTIVE PROBLEM SET */}
+        {/* ======================================================== */}
+        {state === 'SELF_PACED_ACTIVE' && selfPacedQuestions.length > 0 && (
+          <div className="w-full flex flex-col justify-between space-y-4 animate-pop py-2">
+            {/* Top Bar: Progress & Countdown */}
+            <div className="bg-slate-900/95 border border-slate-800 rounded-2xl p-3 shadow-lg flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-400">
+                  Answered: <strong className="text-emerald-400 font-mono">{Object.keys(selfPacedAnswers).length}</strong> / {selfPacedQuestions.length}
+                </span>
+                {saveToast && (
+                  <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/30 animate-pulse flex items-center gap-1 font-semibold">
+                    <Check className="w-2.5 h-2.5" /> Saved
+                  </span>
+                )}
+              </div>
+
+              {/* Countdown badge */}
+              <div className={`flex items-center gap-1.5 px-3 py-1 rounded-xl font-mono font-bold text-xs border ${
+                selfPacedTimeRemaining <= 60
+                  ? 'bg-rose-950/80 border-rose-500 text-rose-400 animate-pulse'
+                  : selfPacedTimeRemaining <= 180
+                  ? 'bg-amber-950/80 border-amber-500 text-amber-300'
+                  : 'bg-slate-800 border-slate-700 text-indigo-300'
+              }`}>
+                <Clock className="w-3.5 h-3.5" />
+                <span>{formatTime(selfPacedTimeRemaining)}</span>
+              </div>
+            </div>
+
+            {/* If student submitted: show Waiting Screen */}
+            {isSelfPacedSubmitted ? (
+              <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 text-center space-y-6 shadow-2xl">
+                <div className="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center text-emerald-400 mx-auto shadow-xl">
+                  <CheckCircle2 className="w-8 h-8" />
+                </div>
+                <div className="space-y-1">
+                  <h2 className="text-2xl font-black text-white">Problem Set Submitted!</h2>
+                  <p className="text-xs text-slate-400">
+                    Your answers are saved. You answered {Object.keys(selfPacedAnswers).length} of {selfPacedQuestions.length} problems.
+                  </p>
+                </div>
+
+                <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 max-w-xs mx-auto space-y-2">
+                  <div className="text-xs text-slate-400 uppercase font-semibold">Session Clock</div>
+                  <div className="text-3xl font-mono font-black text-indigo-400">
+                    {formatTime(selfPacedTimeRemaining)}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    Scorecard and class rankings will appear as soon as the session concludes.
+                  </div>
+                </div>
+
+                <div className="text-xs text-slate-500 italic">
+                  Keep this tab open — results will display automatically!
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Horizontal Question Switcher Ribbon [1] [2] ... [N] */}
+                <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-2.5 shadow-md">
+                  <div className="text-[11px] font-bold text-slate-400 mb-2 px-1 flex items-center justify-between">
+                    <span>Jump to Problem:</span>
+                    <span className="text-[10px] text-indigo-400">Tap any number to switch</span>
+                  </div>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1">
+                    {selfPacedQuestions.map((q, idx) => {
+                      const isAnswered = selfPacedAnswers[idx] !== undefined;
+                      const isActive = selfPacedCurrentIndex === idx;
+
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setSelfPacedCurrentIndex(idx)}
+                          className={`min-w-[40px] h-10 rounded-xl font-mono text-xs font-black transition-all flex flex-col items-center justify-center relative ${
+                            isActive
+                              ? 'bg-indigo-600 text-white ring-2 ring-indigo-400 scale-105 shadow-md'
+                              : isAnswered
+                              ? 'bg-emerald-950/60 border border-emerald-500 text-emerald-300 hover:bg-emerald-900/50'
+                              : 'bg-slate-800/80 border border-slate-700 text-slate-300 hover:bg-slate-800'
+                          }`}
+                        >
+                          <span>{idx + 1}</span>
+                          {isAnswered && !isActive && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 -mt-0.5" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Current Problem Card */}
+                {(() => {
+                  const currentQ = selfPacedQuestions[selfPacedCurrentIndex];
+                  if (!currentQ) return null;
+                  const currentSelected = selfPacedAnswers[selfPacedCurrentIndex];
+
+                  return (
+                    <div className="space-y-4">
+                      {/* Problem Header & Text */}
+                      <div className="bg-slate-900/95 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="px-3 py-1 bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 rounded-full text-xs font-black uppercase tracking-wider">
+                            Problem {selfPacedCurrentIndex + 1} of {selfPacedQuestions.length}
+                          </span>
+                          <span className="px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full text-xs font-bold">
+                            Worth {currentQ.points || 10} pts
+                          </span>
+                        </div>
+
+                        <div className="text-base font-bold text-white leading-relaxed pt-1">
+                          <LatexRenderer content={currentQ.question} />
+                        </div>
+
+                        {currentQ.imageUrl && (
+                          <div className="flex justify-center pt-2">
+                            <img
+                              src={currentQ.imageUrl}
+                              alt="Problem diagram"
+                              className="max-h-48 rounded-xl border border-slate-700 object-contain bg-slate-950 p-1.5"
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 4 Colored Option Cards */}
+                      <div className="grid grid-cols-1 gap-2.5">
+                        {currentQ.options.map((opt, optIdx) => {
+                          const isSelected = currentSelected === optIdx;
+                          const theme = BUTTON_THEMES[optIdx % BUTTON_THEMES.length];
+
+                          return (
+                            <button
+                              key={optIdx}
+                              type="button"
+                              onClick={() => handleSelectSelfPacedAnswer(optIdx)}
+                              className={`flex items-center gap-3.5 p-3.5 sm:p-4 rounded-2xl border-2 transition-all text-left transform active:scale-[0.98] ${
+                                isSelected
+                                  ? `${theme.bg} border-white shadow-xl ring-2 ring-white/60`
+                                  : 'bg-slate-900/90 border-slate-800 hover:border-slate-700 text-slate-200'
+                              }`}
+                            >
+                              <span className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xl shrink-0 transition-colors ${
+                                isSelected ? 'bg-black/30 text-white' : `${theme.bg} text-white`
+                              }`}>
+                                {theme.icon}
+                              </span>
+
+                              <div className="flex-1 font-semibold text-sm sm:text-base leading-snug">
+                                <LatexRenderer content={opt.text} />
+                              </div>
+
+                              {isSelected && (
+                                <div className="w-6 h-6 rounded-full bg-white text-slate-900 flex items-center justify-center shrink-0 font-black shadow">
+                                  <Check className="w-4 h-4 text-emerald-600 stroke-[3]" />
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Bottom Prev / Next / Submit Controls */}
+                      <div className="flex items-center justify-between gap-3 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelfPacedCurrentIndex(prev => Math.max(0, prev - 1))}
+                          disabled={selfPacedCurrentIndex === 0}
+                          className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-slate-300 font-bold text-xs rounded-xl border border-slate-800 transition-all"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                          <span>Previous</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowSubmitModal(true)}
+                          className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-all transform active:scale-95"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Submit All ({Object.keys(selfPacedAnswers).length}/{selfPacedQuestions.length})</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setSelfPacedCurrentIndex(prev => Math.min(selfPacedQuestions.length - 1, prev + 1))}
+                          disabled={selfPacedCurrentIndex === selfPacedQuestions.length - 1}
+                          className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-slate-300 font-bold text-xs rounded-xl border border-slate-800 transition-all"
+                        >
+                          <span>Next</span>
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* VIEW 9: SELF-PACED FINAL RESULTS */}
+        {/* ======================================================== */}
+        {state === 'SELF_PACED_RESULTS' && selfPacedResults && (
+          <div className="w-full text-center space-y-6 animate-pop py-6">
+            <div className="text-5xl animate-bounce">🏆</div>
+            <div className="space-y-1">
+              <h2 className="text-3xl font-black text-white">Activity Completed!</h2>
+              <p className="text-xs text-slate-400">Here is your problem set score and breakdown</p>
+            </div>
+
+            {/* Scorecard */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-sm mx-auto space-y-4 shadow-xl">
+              <div>
+                <span className="text-xs text-slate-400 uppercase font-semibold">Total Points Earned</span>
+                <div className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-emerald-300 to-indigo-300 mt-1">
+                  {selfPacedResults.score.toLocaleString()} <span className="text-base text-slate-400">pts</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+                <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Correct Count</span>
+                  <div className="text-lg font-black text-emerald-400 mt-0.5">
+                    {selfPacedResults.correctCount} / {selfPacedResults.totalQuestions}
+                  </div>
+                </div>
+
+                <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Class Rank</span>
+                  <div className="text-lg font-black text-amber-300 mt-0.5">
+                    #{selfPacedResults.rank} <span className="text-xs text-slate-500">/ {selfPacedResults.totalStudents}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setState('ENTRY');
+                setIsSelfPacedMode(false);
+                setSelfPacedResults(null);
+                setSelfPacedAnswers({});
+                setIsSelfPacedSubmitted(false);
+              }}
+              className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 shadow"
+            >
+              Join Another Class Activity
+            </button>
+          </div>
+        )}
       </main>
+
+      {/* Submit Confirmation Modal */}
+      {showSubmitModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-pop">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-6 h-6" />
+            </div>
+
+            <div className="text-center space-y-1">
+              <h3 className="text-lg font-black text-white">Submit Problem Set?</h3>
+              <p className="text-xs text-slate-400">
+                You have answered <strong className="text-emerald-400">{Object.keys(selfPacedAnswers).length}</strong> of{' '}
+                <strong className="text-white">{selfPacedQuestions.length}</strong> questions.
+              </p>
+            </div>
+
+            {Object.keys(selfPacedAnswers).length < selfPacedQuestions.length && (
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>
+                  Notice: You still have {selfPacedQuestions.length - Object.keys(selfPacedAnswers).length} unanswered question(s).
+                </span>
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowSubmitModal(false)}
+                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl border border-slate-700"
+              >
+                Keep Working
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSubmitSelfPaced}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/30"
+              >
+                Yes, Submit Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

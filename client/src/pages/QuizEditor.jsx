@@ -58,6 +58,7 @@ export default function QuizEditor({ quizId, token, onSaveSuccess, onCancel }) {
   }, [quizId, token]);
 
   const currentQ = questions[currentIndex] || questions[0];
+  const totalQuizPoints = questions.reduce((acc, q) => acc + (Number(q.points) || 10), 0);
 
   const updateCurrentQuestion = (fields) => {
     const updated = [...questions];
@@ -257,10 +258,15 @@ export default function QuizEditor({ quizId, token, onSaveSuccess, onCancel }) {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="text-xl font-black text-white tracking-tight">
-              {quizId ? 'Edit Physics Quiz' : 'Create Physics Quiz Studio'}
-            </h1>
-            <p className="text-xs text-slate-400">KaTeX formulas, diagrams, and timer settings</p>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-black text-white tracking-tight">
+                {quizId ? 'Edit Physics Quiz' : 'Create Physics Quiz Studio'}
+              </h1>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                {questions.length} {questions.length === 1 ? 'Question' : 'Questions'} • {totalQuizPoints} pts
+              </span>
+            </div>
+            <p className="text-xs text-slate-400">Custom points, LaTeX formulas, diagrams, and timer settings</p>
           </div>
         </div>
 
@@ -419,15 +425,18 @@ export default function QuizEditor({ quizId, token, onSaveSuccess, onCancel }) {
 
                 <div className="flex items-center gap-1.5 text-xs text-slate-300">
                   <Zap className="w-3.5 h-3.5 text-amber-400" />
-                  <select
-                    value={currentQ.points || 1000}
-                    onChange={(e) => updateCurrentQuestion({ points: Number(e.target.value) })}
-                    className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
-                  >
-                    <option value={500}>500 pts</option>
-                    <option value={1000}>1000 pts</option>
-                    <option value={2000}>2000 pts</option>
-                  </select>
+                  <div className="flex items-center bg-slate-800 border border-slate-700 rounded-lg px-2 py-0.5 focus-within:border-amber-400">
+                    <input
+                      type="number"
+                      min={1}
+                      max={10000}
+                      value={currentQ.points ?? 10}
+                      onChange={(e) => updateCurrentQuestion({ points: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                      className="w-14 bg-transparent text-xs text-white focus:outline-none font-bold text-center"
+                      title="Points awarded for correct answer"
+                    />
+                    <span className="text-[11px] text-slate-400 font-semibold ml-0.5">pts</span>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-1 border-l border-slate-800 pl-3">

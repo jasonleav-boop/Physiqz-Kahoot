@@ -21,9 +21,11 @@ export default function TutorDashboard({
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Live Session Launch Modal (with optional room passcode)
+  // Live Session Launch Modal (with optional room passcode and session mode)
   const [launchModalQuiz, setLaunchModalQuiz] = useState(null);
   const [roomPasscode, setRoomPasscode] = useState('');
+  const [sessionMode, setSessionMode] = useState('LECTURER_PACED');
+  const [sessionDurationMinutes, setSessionDurationMinutes] = useState(10);
 
   // AI Quiz Generator (Gemini Pro) Modal
   const [aiModal, setAiModal] = useState(false);
@@ -251,7 +253,12 @@ export default function TutorDashboard({
 
   const handleLaunchConfirmed = () => {
     if (!launchModalQuiz) return;
-    onStartSession(launchModalQuiz, roomPasscode.trim() || null);
+    onStartSession(
+      launchModalQuiz,
+      roomPasscode.trim() || null,
+      sessionMode,
+      parseInt(sessionDurationMinutes, 10) || 10
+    );
     setLaunchModalQuiz(null);
     setRoomPasscode('');
   };
@@ -542,9 +549,98 @@ export default function TutorDashboard({
               </div>
               <div>
                 <h3 className="text-lg font-bold text-white">Start Live Session</h3>
-                <p className="text-xs text-slate-400">{launchModalQuiz.title}</p>
+                <p className="text-xs text-slate-400">{launchModalQuiz.title} ({launchModalQuiz.questionCount || launchModalQuiz.questions?.length || 0} Problems)</p>
               </div>
             </div>
+
+            {/* Session Mode Selector */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-300 uppercase">
+                Session Mode
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSessionMode('LECTURER_PACED')}
+                  className={`p-3 rounded-2xl border text-left transition-all ${
+                    sessionMode === 'LECTURER_PACED'
+                      ? 'bg-indigo-600/20 border-indigo-500 ring-2 ring-indigo-500/30'
+                      : 'bg-slate-800/60 border-slate-700 hover:bg-slate-800'
+                  }`}
+                >
+                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <span>👨‍🏫 Lecturer-Paced</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1 leading-snug">
+                    Question-by-question discussion. Tutor clicks next.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSessionMode('STUDENT_PACED')}
+                  className={`p-3 rounded-2xl border text-left transition-all ${
+                    sessionMode === 'STUDENT_PACED'
+                      ? 'bg-indigo-600/20 border-indigo-500 ring-2 ring-indigo-500/30'
+                      : 'bg-slate-800/60 border-slate-700 hover:bg-slate-800'
+                  }`}
+                >
+                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <span>⏱️ Student-Paced</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1 leading-snug">
+                    Total time limit. Students navigate & switch problems freely.
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* If Student-Paced: Duration setting */}
+            {sessionMode === 'STUDENT_PACED' && (
+              <div className="p-4 bg-slate-800/60 rounded-2xl border border-slate-700/60 space-y-2.5 animate-pop">
+                <label className="block text-xs font-bold text-slate-200 uppercase flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Total Session Time (Minutes)</span>
+                  </span>
+                  <span className="text-[11px] text-indigo-300 font-mono font-bold">
+                    {sessionDurationMinutes} mins
+                  </span>
+                </label>
+
+                {/* Quick preset duration pills */}
+                <div className="flex flex-wrap gap-1.5">
+                  {[5, 8, 10, 15, 20, 30, 45].map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setSessionDurationMinutes(m)}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all ${
+                        Number(sessionDurationMinutes) === m
+                          ? 'bg-indigo-600 text-white border-indigo-500 shadow'
+                          : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      {m}m
+                    </button>
+                  ))}
+                </div>
+
+                {/* Custom minute input */}
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-xs text-slate-400">Or type custom:</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={180}
+                    value={sessionDurationMinutes}
+                    onChange={(e) => setSessionDurationMinutes(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    className="w-20 px-2.5 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-indigo-500 text-center"
+                  />
+                  <span className="text-xs text-slate-400">minutes</span>
+                </div>
+              </div>
+            )}
 
             <div className="p-4 bg-slate-800/60 rounded-2xl border border-slate-700/60 space-y-2">
               <label className="block text-xs font-bold text-slate-200 uppercase flex items-center gap-1.5">
