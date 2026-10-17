@@ -1,4 +1,5 @@
 const roomManager = require('./roomManager');
+const { db } = require('../db');
 
 function setupSocketHandlers(io) {
   io.on('connection', (socket) => {
@@ -378,6 +379,163 @@ function setupSocketHandlers(io) {
         if (callback) callback({ success: true, isSubmitted: true });
       } else if (callback) {
         callback({ error: res?.error || 'Failed to submit' });
+      }
+    });
+
+    // ---------------------------------------------------------
+    // Attendance Live Socket Handlers
+    // ---------------------------------------------------------
+    socket.on('attendance:join-room', ({ sessionCode }) => {
+      if (sessionCode) {
+        const cleanCode = String(sessionCode).trim().toUpperCase();
+        socket.join(`attendance:${cleanCode}`);
+      }
+    });
+
+    socket.on('attendance:student-checkin', ({ sessionCode, studentId, passcode }, callback) => {
+      try {
+        if (!sessionCode || !studentId) {
+          return callback && callback({ error: 'Session code and Student ID are required.' });
+        }
+        const cleanCode = String(sessionCode).trim().toUpperCase();
+        const cleanStudentId = String(studentId).trim().toLowerCase();
+
+        const session = db.prepare('SELECT * FROM attendance_sessions WHERE UPPER(session_code) = ?').get(cleanCode);
+        if (!session) {
+          return callback && callback({ error: 'Attendance session not found.' });
+        }
+        if (!session.is_active) {
+          return callback && callback({ error: 'This attendance session is closed.' });
+        }
+        if (session.passcode && session.passcode.trim() !== String(passcode || '').trim()) {
+          return callback && callback({ error: 'Invalid room security passcode.' });
+        }
+
+        const student = db.prepare('SELECT * FROM students WHERE group_id = ? AND LOWER(student_id) = ?').get(session.group_id, cleanStudentId);
+        if (!student) {
+          return callback && callback({ error: `Student ID "${cleanStudentId}" not found in this class roster.` });
+        }
+
+        const now = new Date().toISOString();
+        db.prepare(`
+          INSERT INTO attendance_records (attendance_session_id, student_id, status, check_in_time, method)
+          VALUES (?, ?, 'PRESENT', ?, 'QR')
+          ON CONFLICT(attendance_session_id, student_id) DO UPDATE SET
+            status = 'PRESENT',
+            check_in_time = ?,
+            method = 'QR'
+        `).run(session.id, student.id, now, now);
+
+        // Fetch updated stats
+        const records = db.prepare('SELECT status FROM attendance_records WHERE attendance_session_id = ?').all(session.id);
+        const stats = {
+          total: records.length,
+          present: records.filter(r => r.status === 'PRESENT').length,
+          absent: records.filter(r => r.status === 'ABSENT').length,
+          late: records.filter(r => r.status === 'LATE').length,
+          excused: records.filter(r => r.status === 'EXCUSED').length
+        };
+
+        const studentPayload = {
+          student_id: student.id,
+          student_number: student.student_number,
+          student_code: student.student_id,
+          name: student.name,
+          sex: student.sex,
+          status: 'PRESENT',
+          check_in_time: now,
+          method: 'QR'
+        };
+
+        io.to(`attendance:${cleanCode}`).emit('attendance:student-checked-in', {
+          student: studentPayload,
+          stats
+        });
+
+        if (callback) {
+          callback({ success: true, student: studentPayload });
+        }
+      } catch (err) {
+        if (callback) callback({ error: err.message });
+      }
+    });
+
+    socket.on('attendance:tutor-toggle', ({ sessionCode, sessionId, studentId, status }, callback) => {
+      try {
+        const cleanCode = String(sessionCode).trim().toUpperCase();
+        const now = new Date().toISOString();
+
+        db.prepare(`
+          INSERT INTO attendance_records (attendance_session_id, student_id, status, check_in_time, method)
+          VALUES (?, ?, ?, ?, 'MANUAL')
+          ON CONFLICT(attendance_session_id, student_id) DO UPDATE SET
+            status = ?,
+            check_in_time = ?,
+            method = 'MANUAL'
+        `).run(sessionId, studentId, status, now, status, now);
+
+        const records = db.prepare('SELECT status FROM attendance_records WHERE attendance_session_id = ?').all(sessionId);
+        const stats = {
+          total: records.length,
+          present: records.filter(r => r.status === 'PRESENT').length,
+          absent: records.filter(r => r.status === 'ABSENT').length,
+          late: records.filter(r => r.status === 'LATE').length,
+          excused: records.filter(r => r.status === 'EXCUSED').length
+        };
+
+        io.to(`attendance:${cleanCode}`).emit('attendance:record-updated', {
+          studentId,
+          status,
+          stats
+        });
+
+        if (callback) callback({ success: true, stats });
+      } catch (err) {
+        if (callback) callback({ error: err.message });
+      }
+    });
+
+    socket.on('attendance:mark-all', ({ sessionCode, sessionId, status }, callback) => {
+      try {
+        const cleanCode = String(sessionCode).trim().toUpperCase();
+        const session = db.prepare('SELECT * FROM attendance_sessions WHERE id = ?').get(sessionId);
+        if (!session) return callback && callback({ error: 'Session not found' });
+
+        const students = db.prepare('SELECT id FROM students WHERE group_id = ?').all(session.group_id);
+        const now = new Date().toISOString();
+
+        const markTx = db.transaction(() => {
+          const upsert = db.prepare(`
+            INSERT INTO attendance_records (attendance_session_id, student_id, status, check_in_time, method)
+            VALUES (?, ?, ?, ?, 'MANUAL')
+            ON CONFLICT(attendance_session_id, student_id) DO UPDATE SET
+              status = ?,
+              check_in_time = ?,
+              method = 'MANUAL'
+          `);
+          for (const s of students) {
+            upsert.run(sessionId, s.id, status, now, status, now);
+          }
+        });
+        markTx();
+
+        const records = db.prepare('SELECT status FROM attendance_records WHERE attendance_session_id = ?').all(sessionId);
+        const stats = {
+          total: records.length,
+          present: records.filter(r => r.status === 'PRESENT').length,
+          absent: records.filter(r => r.status === 'ABSENT').length,
+          late: records.filter(r => r.status === 'LATE').length,
+          excused: records.filter(r => r.status === 'EXCUSED').length
+        };
+
+        io.to(`attendance:${cleanCode}`).emit('attendance:bulk-updated', {
+          status,
+          stats
+        });
+
+        if (callback) callback({ success: true, stats });
+      } catch (err) {
+        if (callback) callback({ error: err.message });
       }
     });
 

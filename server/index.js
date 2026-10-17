@@ -10,6 +10,7 @@ const { db } = require('./db');
 const { registerTutor, loginTutor, authenticateToken } = require('./auth');
 const quizzesRouter = require('./routes/quizzes');
 const sessionsRouter = require('./routes/sessions');
+const attendanceRouter = require('./routes/attendance');
 const setupSocketHandlers = require('./game/socketHandlers');
 
 const app = express();
@@ -142,6 +143,7 @@ app.delete('/api/admin/tutors/:id', authenticateToken, requireAdmin, (req, res) 
 // -------------------------------------------------------------
 app.use('/api/quizzes', quizzesRouter);
 app.use('/api/sessions', sessionsRouter);
+app.use('/api/attendance', attendanceRouter);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

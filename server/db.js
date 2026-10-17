@@ -77,6 +77,53 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS class_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT UNIQUE NOT NULL,
+    department TEXT DEFAULT 'Département de Tronc Commun',
+    academic_year TEXT DEFAULT '2026-2027',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS students (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    student_number INTEGER,
+    student_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    sex TEXT DEFAULT 'M',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(group_id) REFERENCES class_groups(id) ON DELETE CASCADE,
+    UNIQUE(group_id, student_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS attendance_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    tutor_id INTEGER NOT NULL,
+    session_code TEXT UNIQUE NOT NULL,
+    title TEXT,
+    date DATE DEFAULT (DATE('now')),
+    passcode TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    ended_at DATETIME,
+    FOREIGN KEY(group_id) REFERENCES class_groups(id) ON DELETE CASCADE,
+    FOREIGN KEY(tutor_id) REFERENCES tutors(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS attendance_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    attendance_session_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    status TEXT DEFAULT 'PRESENT',
+    check_in_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    method TEXT DEFAULT 'QR',
+    FOREIGN KEY(attendance_session_id) REFERENCES attendance_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE,
+    UNIQUE(attendance_session_id, student_id)
+  );
 `);
 
 // Safe migration for sessions columns
@@ -268,6 +315,13 @@ function seedData() {
     insertQuiz.run(tutorId, sampleQuiz2.title, sampleQuiz2.description, sampleQuiz2.topic, JSON.stringify(sampleQuiz2.questions), generateShareCode());
     console.log(`Seeded 2 sample physics quizzes with KaTeX formulas for tutor ID ${tutorId}.`);
     }
+  }
+
+  try {
+    const { parseAndSeedRoster } = require('./seedRoster');
+    parseAndSeedRoster(db);
+  } catch (err) {
+    console.error('Error seeding roster:', err);
   }
 }
 

@@ -7,21 +7,28 @@ import QuizEditor from './pages/QuizEditor';
 import PresenterView from './pages/PresenterView';
 import StudentView from './pages/StudentView';
 import SessionReportView from './pages/SessionReportView';
+import AttendanceDashboard from './pages/AttendanceDashboard';
+import AttendancePresenterView from './pages/AttendancePresenterView';
+import StudentAttendanceView from './pages/StudentAttendanceView';
 
 export default function App() {
   const [tutor, setTutor] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('physics_kahoot_token') || '');
-  const [activeTab, setActiveTab] = useState('quizzes'); // quizzes | create | edit | reports | presenter | student
+  const [activeTab, setActiveTab] = useState('quizzes'); // quizzes | create | edit | reports | attendance | presenter | student
   const [editingQuizId, setEditingQuizId] = useState(null);
   const [activeRoomData, setActiveRoomData] = useState(null);
   const [hostSocket, setHostSocket] = useState(null);
   const [isStudentRoute, setIsStudentRoute] = useState(false);
+  const [isAttendanceRoute, setIsAttendanceRoute] = useState(false);
+  const [activeAttendanceSession, setActiveAttendanceSession] = useState(null);
 
   // Check initial URL route
   useEffect(() => {
     const path = window.location.pathname.toLowerCase();
     const search = window.location.search;
-    if (path.startsWith('/join') || search.includes('room=') || search.includes('pin=')) {
+    if (path.startsWith('/attend')) {
+      setIsAttendanceRoute(true);
+    } else if (path.startsWith('/join') || search.includes('room=') || search.includes('pin=')) {
       setIsStudentRoute(true);
     }
   }, []);
@@ -125,6 +132,18 @@ export default function App() {
     window.open(url, '_blank');
   };
 
+  // Direct student attendance route (e.g. /attend or scanned QR code)
+  if (isAttendanceRoute) {
+    return (
+      <StudentAttendanceView
+        onGoToQuiz={() => {
+          setIsAttendanceRoute(false);
+          setIsStudentRoute(true);
+        }}
+      />
+    );
+  }
+
   // Direct student route (e.g. /join or scanned QR code)
   if (isStudentRoute || activeTab === 'student') {
     return (
@@ -149,13 +168,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* Show Navbar except during full-screen Presenter Mode */}
-      {activeTab !== 'presenter' && (
+      {/* Show Navbar except during full-screen Presenter Mode or Full-screen Attendance Presenter */}
+      {activeTab !== 'presenter' && !activeAttendanceSession && (
         <Navbar
           tutor={tutor}
           activeTab={activeTab}
           onTabChange={(tab) => {
             if (tab === 'create') setEditingQuizId(null);
+            setActiveAttendanceSession(null);
             setActiveTab(tab);
           }}
           onLogout={handleLogout}
@@ -201,6 +221,21 @@ export default function App() {
             token={token}
             onBack={() => setActiveTab('quizzes')}
           />
+        )}
+
+        {activeTab === 'attendance' && (
+          activeAttendanceSession ? (
+            <AttendancePresenterView
+              sessionInfo={activeAttendanceSession}
+              token={token}
+              onBack={() => setActiveAttendanceSession(null)}
+            />
+          ) : (
+            <AttendanceDashboard
+              token={token}
+              onStartAttendanceSession={(session) => setActiveAttendanceSession(session)}
+            />
+          )
         )}
 
         {activeTab === 'presenter' && activeRoomData && hostSocket && (
