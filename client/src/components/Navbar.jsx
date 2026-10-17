@@ -12,7 +12,7 @@ export default function Navbar({ tutor, activeTab, onTabChange, onLogout, onOpen
           </div>
           <div>
             <div className="text-lg font-black text-white tracking-tight flex items-center gap-1.5">
-              <span>PhysiKahoot</span>
+              <span>Techno Physik</span>
               <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
                 Tutor
               </span>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Atom, LogIn, UserPlus, Sparkles, AlertCircle, ArrowRight } from 'lucide-react';
+import { Atom, LogIn, UserPlus, AlertCircle, ArrowRight } from 'lucide-react';
 
 export default function LoginRegister({ onLoginSuccess, onOpenStudentView }) {
   const [isRegister, setIsRegister] = useState(false);
@@ -37,29 +37,6 @@ export default function LoginRegister({ onLoginSuccess, onOpenStudentView }) {
     }
   };
 
-  const handleQuickLogin = async (userEmail, userPassword) => {
-    setError('');
-    setLoading(true);
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: userEmail, password: userPassword })
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Login failed');
-      }
-
-      onLoginSuccess(data.tutor, data.token);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950">
       <div className="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl relative overflow-hidden">
@@ -72,36 +49,8 @@ export default function LoginRegister({ onLoginSuccess, onOpenStudentView }) {
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-xl shadow-indigo-500/30 mb-3">
             <Atom className="w-8 h-8" />
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">PhysiKahoot</h1>
+          <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">Techno Physik</h1>
           <p className="text-xs text-slate-400 mt-1">Real-time classroom polling & quiz studio for physics tutors</p>
-        </div>
-
-        {/* 1-Click Login for Jason Leav */}
-        <div className="space-y-2 mb-6">
-          <button
-            type="button"
-            onClick={() => handleQuickLogin('jasonleav@gmail.com', 'physics123')}
-            disabled={loading}
-            className="w-full py-2.5 px-4 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-indigo-600/25 flex items-center justify-center gap-2 transition-all transform active:scale-95"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>Login as Jason Leav (jasonleav@gmail.com)</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleQuickLogin('tutor@physics.edu', 'physics123')}
-            disabled={loading}
-            className="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700/80 text-slate-300 font-semibold text-xs rounded-xl border border-slate-700 flex items-center justify-center gap-2 transition-colors"
-          >
-            <span>Demo Profile: Dr. Richard Feynman</span>
-          </button>
-        </div>
-
-        <div className="relative flex py-2 items-center mb-6">
-          <div className="flex-grow border-t border-slate-800"></div>
-          <span className="flex-shrink mx-3 text-slate-500 text-xs uppercase font-medium">Or Use Account</span>
-          <div className="flex-grow border-t border-slate-800"></div>
         </div>
 
         {/* Tabs */}
