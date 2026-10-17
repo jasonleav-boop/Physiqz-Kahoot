@@ -10,6 +10,7 @@ import SessionReportView from './pages/SessionReportView';
 import AttendanceDashboard from './pages/AttendanceDashboard';
 import AttendancePresenterView from './pages/AttendancePresenterView';
 import StudentAttendanceView from './pages/StudentAttendanceView';
+import FacultyReportsView from './pages/FacultyReportsView';
 
 export default function App() {
   const [tutor, setTutor] = useState(null);
@@ -241,6 +242,14 @@ export default function App() {
               onStartAttendanceSession={(session) => setActiveAttendanceSession(session)}
             />
           )
+        )}
+
+        {activeTab === 'faculty' && (
+          <FacultyReportsView
+            token={token}
+            tutor={tutor}
+            onBack={() => setActiveTab('quizzes')}
+          />
         )}
 
         {activeTab === 'presenter' && activeRoomData && hostSocket && (

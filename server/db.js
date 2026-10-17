@@ -150,6 +150,10 @@ try {
 } catch (e) {}
 
 try {
+  db.exec(`ALTER TABLE tutors ADD COLUMN assigned_classes TEXT DEFAULT '';`);
+} catch (e) {}
+
+try {
   db.exec(`ALTER TABLE quizzes ADD COLUMN is_shared INTEGER DEFAULT 0;`);
   db.exec(`ALTER TABLE quizzes ADD COLUMN subject TEXT DEFAULT 'Electricity';`);
   db.exec(`ALTER TABLE quizzes ADD COLUMN class_type TEXT DEFAULT 'TD';`);

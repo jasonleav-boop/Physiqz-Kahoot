@@ -1,8 +1,9 @@
 import React from 'react';
-import { Atom, PlusCircle, BookOpen, BarChart3, LogOut, Smartphone, UserCheck, Sparkles } from 'lucide-react';
+import { Atom, PlusCircle, BookOpen, BarChart3, LogOut, Smartphone, UserCheck, Sparkles, ShieldCheck } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
 
 export default function Navbar({ tutor, activeTab, onTabChange, onLogout, onOpenStudentView }) {
+  const isLeadOrAdmin = tutor?.is_admin || tutor?.role === 'lead' || tutor?.role === 'admin' || (tutor?.email?.toLowerCase() === 'jasonleav@gmail.com');
   return (
     <header className="w-full bg-slate-900/95 border-b border-slate-800 backdrop-blur sticky top-0 z-40">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
@@ -89,6 +90,23 @@ export default function Navbar({ tutor, activeTab, onTabChange, onLogout, onOpen
               <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
               <span>Attendance</span>
             </button>
+
+            {/* Lead Lecturer & Admin Only: Tutors & Classes Reports */}
+            {isLeadOrAdmin && (
+              <button
+                type="button"
+                onClick={() => onTabChange('faculty')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  activeTab === 'faculty'
+                    ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-sm ring-1 ring-amber-400/50'
+                    : 'text-amber-300 hover:bg-slate-800 border border-amber-500/30'
+                }`}
+                title="Lead & Admin Faculty Oversight: Check tutors, classes handled, and reports"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                <span>👨‍🏫 Tutors & Classes</span>
+              </button>
+            )}
           </nav>
         )}
 

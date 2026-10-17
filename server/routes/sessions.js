@@ -3,19 +3,37 @@ const router = express.Router();
 const { db } = require('../db');
 const { authenticateToken } = require('../auth');
 
-// Get all past sessions for current tutor
+// Get all past sessions (supports filtering by tutorId for Lead & Admin)
 router.get('/', authenticateToken, (req, res) => {
   try {
-    const sessions = db.prepare(`
+    const isLeadOrAdmin = req.tutor.is_admin ||
+      req.tutor.role === 'lead' ||
+      req.tutor.role === 'admin' ||
+      (req.tutor.email?.toLowerCase() === 'jasonleav@gmail.com');
+
+    const { tutorId } = req.query;
+
+    let query = `
       SELECT s.id, s.room_code, s.quiz_title, s.started_at, s.ended_at, s.total_participants,
+             s.tutor_id, t.name as tutor_name, t.email as tutor_email,
              COUNT(sp.id) as roster_count,
              AVG(sp.score) as average_score
       FROM sessions s
+      JOIN tutors t ON t.id = s.tutor_id
       LEFT JOIN session_participants sp ON sp.session_id = s.id
-      WHERE s.tutor_id = ?
-      GROUP BY s.id
-      ORDER BY s.started_at DESC
-    `).all(req.tutor.id);
+    `;
+    const params = [];
+
+    if (tutorId && isLeadOrAdmin) {
+      query += ` WHERE s.tutor_id = ? `;
+      params.push(tutorId);
+    } else if (!isLeadOrAdmin) {
+      query += ` WHERE s.tutor_id = ? `;
+      params.push(req.tutor.id);
+    }
+
+    query += ` GROUP BY s.id ORDER BY s.started_at DESC `;
+    const sessions = db.prepare(query).all(...params);
 
     res.json(sessions);
   } catch (err) {
@@ -26,9 +44,14 @@ router.get('/', authenticateToken, (req, res) => {
 // Get session details and question breakdown
 router.get('/:id', authenticateToken, (req, res) => {
   try {
-    const session = db.prepare(`
-      SELECT * FROM sessions WHERE id = ? AND tutor_id = ?
-    `).get(req.params.id, req.tutor.id);
+    const isLeadOrAdmin = req.tutor.is_admin ||
+      req.tutor.role === 'lead' ||
+      req.tutor.role === 'admin' ||
+      (req.tutor.email?.toLowerCase() === 'jasonleav@gmail.com');
+
+    const session = isLeadOrAdmin
+      ? db.prepare('SELECT s.*, t.name as tutor_name, t.email as tutor_email FROM sessions s JOIN tutors t ON t.id = s.tutor_id WHERE s.id = ?').get(req.params.id)
+      : db.prepare('SELECT s.*, t.name as tutor_name, t.email as tutor_email FROM sessions s JOIN tutors t ON t.id = s.tutor_id WHERE s.id = ? AND s.tutor_id = ?').get(req.params.id, req.tutor.id);
 
     if (!session) {
       return res.status(404).json({ error: 'Session not found' });
@@ -105,9 +128,14 @@ function escapeCsv(val) {
 // Download Results as CSV
 router.get('/:id/export-csv', authenticateToken, (req, res) => {
   try {
-    const session = db.prepare(`
-      SELECT * FROM sessions WHERE id = ? AND tutor_id = ?
-    `).get(req.params.id, req.tutor.id);
+    const isLeadOrAdmin = req.tutor.is_admin ||
+      req.tutor.role === 'lead' ||
+      req.tutor.role === 'admin' ||
+      (req.tutor.email?.toLowerCase() === 'jasonleav@gmail.com');
+
+    const session = isLeadOrAdmin
+      ? db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.params.id)
+      : db.prepare('SELECT * FROM sessions WHERE id = ? AND tutor_id = ?').get(req.params.id, req.tutor.id);
 
     if (!session) {
       return res.status(404).send('Session not found');

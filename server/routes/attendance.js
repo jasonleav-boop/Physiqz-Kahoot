@@ -359,7 +359,7 @@ router.post('/sessions', authenticateToken, (req, res) => {
 // -------------------------------------------------------------
 router.get('/sessions', authenticateToken, (req, res) => {
   try {
-    const { groupId, subject, classType, yearLevel, limit = 100 } = req.query;
+    const { groupId, subject, classType, yearLevel, tutorId, limit = 100 } = req.query;
     let query = `
       SELECT 
         s.id,
@@ -391,6 +391,10 @@ router.get('/sessions', authenticateToken, (req, res) => {
     const params = [];
     const where = [];
 
+    if (tutorId) {
+      where.push('s.tutor_id = ?');
+      params.push(tutorId);
+    }
     if (groupId) {
       where.push('s.group_id = ?');
       params.push(groupId);

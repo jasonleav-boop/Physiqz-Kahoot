@@ -95,9 +95,9 @@ const requireLeadOrAdmin = (req, res, next) => {
 
 app.get('/api/admin/tutors', authenticateToken, requireLeadOrAdmin, (req, res) => {
   try {
-    const tutors = db.prepare('SELECT id, name, email, is_admin, role, created_at FROM tutors ORDER BY created_at DESC').all();
+    const tutors = db.prepare('SELECT id, name, email, is_admin, role, assigned_classes, created_at FROM tutors ORDER BY created_at DESC').all();
 
-    // Enrich each tutor with real progress metrics across quizzes, sessions, and attendance
+    // Enrich each tutor with real progress metrics and classes handled
     const enrichedTutors = tutors.map(t => {
       const quizStats = db.prepare(`
         SELECT COUNT(*) as total_quizzes,
@@ -118,8 +118,21 @@ app.get('/api/admin/tutors', authenticateToken, requireLeadOrAdmin, (req, res) =
         FROM attendance_sessions WHERE tutor_id = ?
       `).get(t.id);
 
+      // Distinct classes and sections handled
+      const classesHandled = db.prepare(`
+        SELECT DISTINCT g.code as group_code, g.year_level, a.subject, a.class_type,
+               COUNT(DISTINCT a.id) as session_count,
+               (SELECT COUNT(*) FROM students st WHERE st.group_id = g.id) as student_count
+        FROM attendance_sessions a
+        JOIN class_groups g ON g.id = a.group_id
+        WHERE a.tutor_id = ?
+        GROUP BY g.code, a.subject, a.class_type
+        ORDER BY g.code ASC
+      `).all(t.id);
+
       return {
         ...t,
+        classesHandled,
         stats: {
           totalQuizzes: quizStats.total_quizzes || 0,
           sharedQuizzes: quizStats.shared_quizzes || 0,
@@ -134,6 +147,76 @@ app.get('/api/admin/tutors', authenticateToken, requireLeadOrAdmin, (req, res) =
     const setting = db.prepare("SELECT value FROM system_settings WHERE key = 'tutor_invite_code'").get();
     const inviteCode = setting ? setting.value : 'TECHNO-2026';
     res.json({ tutors: enrichedTutors, inviteCode });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/admin/tutors/:id/assigned-classes', authenticateToken, requireLeadOrAdmin, (req, res) => {
+  try {
+    const tutorId = parseInt(req.params.id, 10);
+    const { assignedClasses } = req.body;
+    db.prepare('UPDATE tutors SET assigned_classes = ? WHERE id = ?')
+      .run(assignedClasses ? String(assignedClasses).trim() : '', tutorId);
+    res.json({ success: true, message: 'Assigned classes updated successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Full reports breakdown for a specific tutor (Live Quiz sessions, Attendance records, Quizzes authored)
+app.get('/api/admin/tutors/:id/full-reports', authenticateToken, requireLeadOrAdmin, (req, res) => {
+  try {
+    const tutorId = parseInt(req.params.id, 10);
+    const tutor = db.prepare('SELECT id, name, email, role, is_admin, assigned_classes, created_at FROM tutors WHERE id = ?').get(tutorId);
+    if (!tutor) return res.status(404).json({ error: 'Tutor not found.' });
+
+    // 1. Live Quiz sessions
+    const quizSessions = db.prepare(`
+      SELECT s.id, s.room_code, s.quiz_title, s.started_at, s.ended_at, s.total_participants,
+             COUNT(sp.id) as roster_count,
+             AVG(sp.score) as average_score
+      FROM sessions s
+      LEFT JOIN session_participants sp ON sp.session_id = s.id
+      WHERE s.tutor_id = ?
+      GROUP BY s.id
+      ORDER BY s.started_at DESC
+    `).all(tutorId);
+
+    // 2. Attendance sessions
+    const attendanceSessions = db.prepare(`
+      SELECT s.id, s.session_code, s.title, s.date, s.subject, s.class_type, s.created_at,
+             g.code as group_code, g.year_level,
+             (SELECT COUNT(*) FROM attendance_records ar WHERE ar.attendance_session_id = s.id AND ar.status = 'PRESENT') as present_count,
+             (SELECT COUNT(*) FROM attendance_records ar WHERE ar.attendance_session_id = s.id AND ar.status = 'ABSENT') as absent_count,
+             (SELECT COUNT(*) FROM attendance_records ar WHERE ar.attendance_session_id = s.id AND ar.status = 'LATE') as late_count,
+             (SELECT COUNT(*) FROM attendance_records ar WHERE ar.attendance_session_id = s.id AND ar.status = 'EXCUSED') as excused_count,
+             (SELECT COUNT(*) FROM students st WHERE st.group_id = s.group_id) as total_students
+      FROM attendance_sessions s
+      JOIN class_groups g ON g.id = s.group_id
+      WHERE s.tutor_id = ?
+      ORDER BY s.created_at DESC
+    `).all(tutorId);
+
+    // 3. Authored Quizzes
+    const quizzes = db.prepare(`
+      SELECT id, title, topic, subject, class_type, share_code, is_shared, created_at, updated_at
+      FROM quizzes
+      WHERE tutor_id = ?
+      ORDER BY updated_at DESC
+    `).all(tutorId).map(q => {
+      const full = db.prepare('SELECT questions_json FROM quizzes WHERE id = ?').get(q.id);
+      let count = 0;
+      try { count = JSON.parse(full.questions_json).length; } catch (e) {}
+      return { ...q, questionCount: count };
+    });
+
+    res.json({
+      tutor,
+      quizSessions,
+      attendanceSessions,
+      quizzes
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
