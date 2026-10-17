@@ -185,10 +185,15 @@ export default function App() {
 
       {/* Main View Router */}
       <main className="flex-1">
-        {activeTab === 'quizzes' && (
+        {(activeTab === 'quizzes' || activeTab === 'dept-library') && (
           <TutorDashboard
             token={token}
             tutor={tutor}
+            initialTab={activeTab === 'dept-library' ? 'dept-library' : 'my-quizzes'}
+            onTabChange={(tab) => {
+              if (tab === 'dept-library') setActiveTab('dept-library');
+              else if (tab === 'my-quizzes') setActiveTab('quizzes');
+            }}
             onStartSession={handleStartSession}
             onEditQuiz={(id) => {
               setEditingQuizId(id);

@@ -2,12 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Play, Plus, Download, Upload, Copy, Check, Trash2, Edit3,
   Share2, Sparkles, BookOpen, Clock, AlertCircle, Lock, Key, Bot, Loader2,
-  ShieldCheck, Users, UserPlus, UserX, X
+  ShieldCheck, Users, UserPlus, UserX, X, RefreshCw
 } from 'lucide-react';
 
 export default function TutorDashboard({
   token,
   tutor,
+  initialTab = 'my-quizzes',
+  onTabChange,
   onStartSession,
   onEditQuiz,
   onCreateQuiz
@@ -40,7 +42,7 @@ export default function TutorDashboard({
   const isLeadLecturer = isAdmin || (tutor?.role === 'lead');
 
   // Department Library & Tab Navigation
-  const [activeTab, setActiveTab] = useState('my-quizzes'); // 'my-quizzes' | 'dept-library'
+  const [activeTab, setActiveTab] = useState(initialTab || 'my-quizzes'); // 'my-quizzes' | 'dept-library'
   const [deptQuizzes, setDeptQuizzes] = useState([]);
   const [deptLoading, setDeptLoading] = useState(false);
   const [deptSubjectFilter, setDeptSubjectFilter] = useState('ALL');
@@ -200,6 +202,7 @@ export default function TutorDashboard({
       alert(`🎉 Cloned "${quizTitle}" to your personal quizzes! You can now customize it or launch it.`);
       fetchQuizzes();
       setActiveTab('my-quizzes');
+      if (onTabChange) onTabChange('my-quizzes');
     } catch (err) {
       alert(err.message);
     }
@@ -253,7 +256,19 @@ export default function TutorDashboard({
 
   useEffect(() => {
     fetchQuizzes();
+    if (initialTab === 'dept-library') {
+      fetchDeptQuizzes();
+    }
   }, [token]);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+      if (initialTab === 'dept-library') {
+        fetchDeptQuizzes();
+      }
+    }
+  }, [initialTab]);
 
   const handleDelete = async (id, title) => {
     if (!window.confirm(`Are you sure you want to delete "${title}"?`)) return;
@@ -510,7 +525,10 @@ export default function TutorDashboard({
         <div className="flex items-center gap-2 p-1 bg-slate-900/90 border border-slate-800 rounded-2xl">
           <button
             type="button"
-            onClick={() => setActiveTab('my-quizzes')}
+            onClick={() => {
+              setActiveTab('my-quizzes');
+              if (onTabChange) onTabChange('my-quizzes');
+            }}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
               activeTab === 'my-quizzes'
                 ? 'bg-indigo-600 text-white shadow-md'
@@ -525,6 +543,7 @@ export default function TutorDashboard({
             type="button"
             onClick={() => {
               setActiveTab('dept-library');
+              if (onTabChange) onTabChange('dept-library');
               fetchDeptQuizzes();
             }}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${

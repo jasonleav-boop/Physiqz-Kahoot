@@ -1,5 +1,5 @@
 import React from 'react';
-import { Atom, PlusCircle, BookOpen, BarChart3, LogOut, Smartphone, UserCheck } from 'lucide-react';
+import { Atom, PlusCircle, BookOpen, BarChart3, LogOut, Smartphone, UserCheck, Sparkles } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
 
 export default function Navbar({ tutor, activeTab, onTabChange, onLogout, onOpenStudentView }) {
@@ -36,6 +36,19 @@ export default function Navbar({ tutor, activeTab, onTabChange, onLogout, onOpen
             >
               <BookOpen className="w-3.5 h-3.5" />
               <span>Quizzes</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onTabChange('dept-library')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                activeTab === 'dept-library'
+                  ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-sm'
+                  : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>Dept Library</span>
             </button>
 
             <button
