@@ -62,3 +62,152 @@ body {
 .animate-pulse-border {
   animation: pulseBorder 2s infinite ease-in-out;
 }
+
+/* ======================================================== */
+/* LIGHT THEME HIGH-CONTRAST CLASSROOM STYLES */
+/* ======================================================== */
+.light-theme {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+.light-theme body {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* Primary surface backgrounds (Cards, Headers, Modals) */
+.light-theme .bg-slate-950,
+.light-theme .bg-slate-950\/80,
+.light-theme .bg-slate-950\/50 {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+.light-theme .bg-slate-900,
+.light-theme .bg-slate-900\/95,
+.light-theme .bg-slate-900\/90,
+.light-theme .bg-slate-900\/80,
+.light-theme .bg-slate-900\/70,
+.light-theme .bg-slate-900\/60,
+.light-theme .bg-slate-900\/50 {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Secondary surface backgrounds (Pills, Sub-containers, Inactive tabs) */
+.light-theme .bg-slate-800,
+.light-theme .bg-slate-800\/90,
+.light-theme .bg-slate-800\/80,
+.light-theme .bg-slate-800\/70,
+.light-theme .bg-slate-800\/60,
+.light-theme .bg-slate-800\/50,
+.light-theme .bg-slate-800\/40 {
+  background-color: #f1f5f9 !important;
+  color: #1e293b !important;
+  border-color: #cbd5e1 !important;
+}
+
+.light-theme .hover\:bg-slate-800:hover,
+.light-theme .hover\:bg-slate-700:hover {
+  background-color: #e2e8f0 !important;
+}
+
+/* Borders */
+.light-theme .border-slate-800,
+.light-theme .border-slate-700,
+.light-theme .border-slate-700\/60,
+.light-theme .border-slate-700\/80 {
+  border-color: #e2e8f0 !important;
+}
+
+/* Text Hierarchy */
+.light-theme .text-white {
+  color: #0f172a !important;
+}
+
+.light-theme .text-slate-200,
+.light-theme .text-slate-300 {
+  color: #1e293b !important;
+}
+
+.light-theme .text-slate-400,
+.light-theme .text-slate-500 {
+  color: #475569 !important;
+}
+
+/* Input Fields & Selects */
+.light-theme input,
+.light-theme textarea,
+.light-theme select {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+.light-theme input::placeholder,
+.light-theme textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Modal Backdrops */
+.light-theme .bg-slate-950\/85,
+.light-theme .bg-black\/75,
+.light-theme .bg-black\/80 {
+  background-color: rgba(15, 23, 42, 0.55) !important;
+}
+
+/* KaTeX Formulas in Normal Light Containers */
+.light-theme .katex {
+  color: #0f172a;
+}
+
+/* Retain Pure White Text & High Contrast on Colored Action Buttons */
+.light-theme button.bg-indigo-600,
+.light-theme button.bg-emerald-600,
+.light-theme button.bg-rose-600,
+.light-theme button.bg-violet-600,
+.light-theme button[class*="from-emerald"],
+.light-theme button[class*="from-indigo"],
+.light-theme button[class*="from-violet"],
+.light-theme .bg-red-600,
+.light-theme .bg-blue-600,
+.light-theme .bg-amber-600,
+.light-theme .bg-emerald-600 {
+  color: #ffffff !important;
+}
+
+.light-theme button.bg-indigo-600 *,
+.light-theme button.bg-emerald-600 *,
+.light-theme button.bg-rose-600 *,
+.light-theme button.bg-violet-600 *,
+.light-theme button[class*="from-emerald"] *,
+.light-theme button[class*="from-indigo"] *,
+.light-theme button[class*="from-violet"] *,
+.light-theme .bg-red-600 *,
+.light-theme .bg-blue-600 *,
+.light-theme .bg-amber-600 *,
+.light-theme .bg-emerald-600 * {
+  color: #ffffff !important;
+}
+
+/* KaTeX inside colored option buttons */
+.light-theme .bg-red-600 .katex,
+.light-theme .bg-blue-600 .katex,
+.light-theme .bg-amber-600 .katex,
+.light-theme .bg-emerald-600 .katex {
+  color: #ffffff !important;
+}
+
+/* Light Theme Scrollbars */
+.light-theme ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+.light-theme ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+.light-theme ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

@@ -31,9 +31,25 @@ export default function Podium({ podium = {}, allRankings = [], onExit, sessionI
     frame();
   }, []);
 
-  const handleDownloadCsv = () => {
-    if (sessionId) {
-      window.location.href = `/api/sessions/${sessionId}/export-csv`;
+  const handleDownloadCsv = async () => {
+    if (!sessionId) return;
+    const token = localStorage.getItem('techno_token') || '';
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/export-csv`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      if (!res.ok) throw new Error('Failed to download CSV');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `session_${sessionId}_results.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      window.location.href = `/api/sessions/${sessionId}/export-csv?token=${encodeURIComponent(token)}`;
     }
   };
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Atom, PlusCircle, BookOpen, BarChart3, LogOut, Smartphone } from 'lucide-react';
+import ThemeToggle from './ThemeToggle';
 
 export default function Navbar({ tutor, activeTab, onTabChange, onLogout, onOpenStudentView }) {
   return (
@@ -65,17 +66,20 @@ export default function Navbar({ tutor, activeTab, onTabChange, onLogout, onOpen
           </nav>
         )}
 
-        {/* Right actions: Student View test link + Tutor Profile / Logout */}
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onOpenStudentView}
-            className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg border border-slate-700 transition-colors"
+        {/* Right actions: Theme Switcher + Student View link + Tutor Profile / Logout */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          <ThemeToggle />
+
+          <a
+            href="/join"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg border border-slate-700 transition-colors"
             title="Open Student Join Window for testing"
           >
             <Smartphone className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Open Student View</span>
-          </button>
+            <span className="hidden sm:inline">Student View</span>
+          </a>
 
           {tutor ? (
             <div className="flex items-center gap-2 pl-2 border-l border-slate-800">

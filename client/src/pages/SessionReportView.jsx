@@ -51,8 +51,24 @@ export default function SessionReportView({ token, onBack }) {
     }
   };
 
-  const handleDownloadCsv = (id) => {
-    window.location.href = `/api/sessions/${id}/export-csv`;
+  const handleDownloadCsv = async (id) => {
+    try {
+      const res = await fetch(`/api/sessions/${id}/export-csv`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Failed to export CSV');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `session_${id}_results.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      window.location.href = `/api/sessions/${id}/export-csv?token=${encodeURIComponent(token)}`;
+    }
   };
 
   return (

@@ -181,8 +181,24 @@ export default function TutorDashboard({
     }
   };
 
-  const handleExportJson = (quiz) => {
-    window.location.href = `/api/quizzes/${quiz.id}/export`;
+  const handleExportJson = async (quiz) => {
+    try {
+      const res = await fetch(`/api/quizzes/${quiz.id}/export`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Failed to export quiz');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${quiz.title.replace(/\s+/g, '_')}_export.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      window.location.href = `/api/quizzes/${quiz.id}/export?token=${encodeURIComponent(token)}`;
+    }
   };
 
   const handleCopyCode = (code) => {

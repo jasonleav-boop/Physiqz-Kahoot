@@ -9,6 +9,7 @@ import LatexRenderer from '../components/LatexRenderer';
 import LiveBarChart from '../components/LiveBarChart';
 import Leaderboard from '../components/Leaderboard';
 import Podium from '../components/Podium';
+import ThemeToggle from '../components/ThemeToggle';
 import soundEffects from '../utils/soundEffects';
 
 const OPTION_STYLES = [
@@ -270,7 +271,9 @@ export default function PresenterView({ socket, initialRoomData, onExitSession }
           </h2>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
+          <ThemeToggle />
+
           <button
             type="button"
             onClick={toggleSound}
@@ -361,14 +364,13 @@ export default function PresenterView({ socket, initialRoomData, onExitSession }
                   <button
                     type="button"
                     onClick={handleStartGame}
-                    disabled={participants.length === 0}
-                    className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-black text-base rounded-2xl shadow-xl shadow-emerald-600/30 transition-all transform active:scale-95 disabled:opacity-40"
+                    className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-black text-base rounded-2xl shadow-xl shadow-emerald-600/30 transition-all transform active:scale-95"
                   >
                     <Play className="w-5 h-5 fill-white" />
                     <span>
                       {sessionMode === 'STUDENT_PACED'
-                        ? `Start Problem Set (${participants.length} Ready)`
-                        : `Start Quiz (${participants.length} Ready)`}
+                        ? `Start Problem Set ${participants.length > 0 ? `(${participants.length} Ready)` : '(Preview Mode)'}`
+                        : `Start Quiz ${participants.length > 0 ? `(${participants.length} Ready)` : '(Preview Mode)'}`}
                     </span>
                   </button>
 

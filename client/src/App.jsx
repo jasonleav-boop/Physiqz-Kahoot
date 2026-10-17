@@ -72,7 +72,7 @@ export default function App() {
       const s = io({ transports: ['websocket', 'polling'] });
       setHostSocket(s);
 
-      s.on('connect', () => {
+      const doCreate = () => {
         // Fetch full quiz with questions
         fetch(`/api/quizzes/${quiz.id}`, {
           headers: { Authorization: `Bearer ${token}` }
@@ -93,6 +93,17 @@ export default function App() {
             alert('Failed to load quiz questions: ' + err.message);
             s.disconnect();
           });
+      };
+
+      if (s.connected) {
+        doCreate();
+      } else {
+        s.once('connect', doCreate);
+      }
+
+      s.once('connect_error', (err) => {
+        console.error('Socket connect error:', err);
+        alert('Could not connect to session server: ' + err.message);
       });
     } catch (err) {
       alert('Error launching session: ' + err.message);
@@ -116,7 +127,14 @@ export default function App() {
 
   // Direct student route (e.g. /join or scanned QR code)
   if (isStudentRoute || activeTab === 'student') {
-    return <StudentView />;
+    return (
+      <StudentView
+        onOpenTutorLogin={() => {
+          setIsStudentRoute(false);
+          setActiveTab('quizzes');
+        }}
+      />
+    );
   }
 
   // If not logged in, show Tutor Login / Register

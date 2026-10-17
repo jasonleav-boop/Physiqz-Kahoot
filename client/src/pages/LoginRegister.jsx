@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Atom, LogIn, UserPlus, AlertCircle, ArrowRight, Key, Lock } from 'lucide-react';
+import ThemeToggle from '../components/ThemeToggle';
 
 export default function LoginRegister({ onLoginSuccess, onOpenStudentView }) {
   const [isRegister, setIsRegister] = useState(false);
@@ -41,6 +42,11 @@ export default function LoginRegister({ onLoginSuccess, onOpenStudentView }) {
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950">
       <div className="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl relative overflow-hidden">
+        {/* Theme Switcher Toggle */}
+        <div className="absolute top-4 right-4 z-20">
+          <ThemeToggle />
+        </div>
+
         {/* Glow decoration */}
         <div className="absolute -top-20 -right-20 w-44 h-44 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-20 -left-20 w-44 h-44 bg-violet-500/20 rounded-full blur-3xl pointer-events-none" />

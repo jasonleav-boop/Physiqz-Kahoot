@@ -6,6 +6,7 @@ import {
   ChevronLeft, ChevronRight, Check, Send
 } from 'lucide-react';
 import LatexRenderer from '../components/LatexRenderer';
+import ThemeToggle from '../components/ThemeToggle';
 import soundEffects from '../utils/soundEffects';
 
 const AVATARS = ['⚛️', '🚀', '⚡', '🧲', '🪐', '🔭', '💡', '🔬'];
@@ -17,7 +18,7 @@ const BUTTON_THEMES = [
   { bg: 'bg-emerald-600', active: 'active:bg-emerald-700', border: 'border-emerald-500', shadow: 'shadow-emerald-900/50', icon: '■', label: 'D' }
 ];
 
-export default function StudentView({ defaultRoomCode = '' }) {
+export default function StudentView({ defaultRoomCode = '', onOpenTutorLogin }) {
   const [socket, setSocket] = useState(null);
   const [connected, setConnected] = useState(false);
   const [roomCode, setRoomCode] = useState(defaultRoomCode);
@@ -274,11 +275,11 @@ export default function StudentView({ defaultRoomCode = '' }) {
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between selection:bg-indigo-500 selection:text-white max-w-lg mx-auto shadow-2xl">
       {/* Mobile Header Bar */}
-      <header className="px-4 py-3 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between sticky top-0 z-20 backdrop-blur">
+      <header className="px-4 py-2.5 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between sticky top-0 z-20 backdrop-blur">
         <div className="flex items-center gap-2">
           <span className="text-xl">{selectedAvatar}</span>
           <div>
-            <div className="text-xs font-bold text-white truncate max-w-[150px]">
+            <div className="text-xs font-bold text-white truncate max-w-[130px]">
               {studentName || 'Student'}
             </div>
             {roomCode && state !== 'ENTRY' && (
@@ -287,19 +288,23 @@ export default function StudentView({ defaultRoomCode = '' }) {
           </div>
         </div>
 
-        {state !== 'ENTRY' && (
-          <div className="text-right">
-            <span className="text-sm font-black text-indigo-400">
-              {score.toLocaleString()} <span className="text-[10px] text-slate-400">pts</span>
-            </span>
-            {streak >= 2 && (
-              <div className="flex items-center justify-end gap-0.5 text-[10px] font-bold text-orange-400">
-                <Flame className="w-3 h-3 fill-orange-400" />
-                <span>{streak} Streak</span>
-              </div>
-            )}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <ThemeToggle className="scale-90" />
+
+          {state !== 'ENTRY' && (
+            <div className="text-right">
+              <span className="text-sm font-black text-indigo-400">
+                {score.toLocaleString()} <span className="text-[10px] text-slate-400">pts</span>
+              </span>
+              {streak >= 2 && (
+                <div className="flex items-center justify-end gap-0.5 text-[10px] font-bold text-orange-400">
+                  <Flame className="w-3 h-3 fill-orange-400" />
+                  <span>{streak} Streak</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </header>
 
       {/* Main Container */}
@@ -414,6 +419,21 @@ export default function StudentView({ defaultRoomCode = '' }) {
               >
                 {joining ? 'Connecting to Room...' : 'Join Class Activity'}
               </button>
+
+              <div className="text-center pt-2">
+                <a
+                  href="/"
+                  onClick={(e) => {
+                    if (onOpenTutorLogin) {
+                      e.preventDefault();
+                      onOpenTutorLogin();
+                    }
+                  }}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 font-medium cursor-pointer"
+                >
+                  Are you an instructor? Tutor Dashboard →
+                </a>
+              </div>
             </form>
           </div>
         )}
