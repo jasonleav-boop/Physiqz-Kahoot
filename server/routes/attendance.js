@@ -102,6 +102,188 @@ router.post('/groups', authenticateToken, (req, res) => {
 });
 
 // -------------------------------------------------------------
+// 3a. Add a single student to a class group
+// -------------------------------------------------------------
+router.post('/groups/:id/students', authenticateToken, (req, res) => {
+  try {
+    const groupId = req.params.id;
+    const { studentId, name, sex = 'M', studentNumber } = req.body;
+
+    if (!studentId || !name) {
+      return res.status(400).json({ error: 'Student ID and Name are required.' });
+    }
+
+    const cleanId = studentId.trim().toLowerCase();
+    const cleanName = name.trim();
+    const cleanSex = (sex || 'M').trim().toUpperCase();
+
+    const group = db.prepare('SELECT id FROM class_groups WHERE id = ?').get(groupId);
+    if (!group) return res.status(404).json({ error: 'Class group not found.' });
+
+    const existing = db.prepare('SELECT id FROM students WHERE group_id = ? AND LOWER(student_id) = ?').get(groupId, cleanId);
+    if (existing) {
+      return res.status(400).json({ error: `Student with ID ${cleanId} already exists in this group.` });
+    }
+
+    let num = studentNumber ? parseInt(studentNumber, 10) : null;
+    if (!num) {
+      const maxNum = db.prepare('SELECT MAX(student_number) as max_num FROM students WHERE group_id = ?').get(groupId);
+      num = (maxNum?.max_num || 0) + 1;
+    }
+
+    const result = db.prepare(`
+      INSERT INTO students (group_id, student_number, student_id, name, sex)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(groupId, num, cleanId, cleanName, cleanSex);
+
+    res.status(201).json({
+      id: result.lastInsertRowid,
+      group_id: parseInt(groupId, 10),
+      student_number: num,
+      student_id: cleanId,
+      name: cleanName,
+      sex: cleanSex
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 3b. Edit an existing student
+// -------------------------------------------------------------
+router.put('/students/:id', authenticateToken, (req, res) => {
+  try {
+    const studentId = req.params.id;
+    const { studentId: newStudentCode, name, sex, studentNumber } = req.body;
+
+    const student = db.prepare('SELECT * FROM students WHERE id = ?').get(studentId);
+    if (!student) return res.status(404).json({ error: 'Student not found.' });
+
+    const cleanCode = newStudentCode ? newStudentCode.trim().toLowerCase() : student.student_id;
+    const cleanName = name ? name.trim() : student.name;
+    const cleanSex = sex ? sex.trim().toUpperCase() : student.sex;
+    const num = studentNumber !== undefined ? parseInt(studentNumber, 10) : student.student_number;
+
+    db.prepare(`
+      UPDATE students 
+      SET student_id = ?, name = ?, sex = ?, student_number = ?
+      WHERE id = ?
+    `).run(cleanCode, cleanName, cleanSex, num, studentId);
+
+    res.json({
+      id: parseInt(studentId, 10),
+      group_id: student.group_id,
+      student_number: num,
+      student_id: cleanCode,
+      name: cleanName,
+      sex: cleanSex
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 3c. Remove student from group
+// -------------------------------------------------------------
+router.delete('/students/:id', authenticateToken, (req, res) => {
+  try {
+    const studentId = req.params.id;
+    const student = db.prepare('SELECT * FROM students WHERE id = ?').get(studentId);
+    if (!student) return res.status(404).json({ error: 'Student not found.' });
+
+    db.prepare('DELETE FROM students WHERE id = ?').run(studentId);
+    res.json({ success: true, message: `Removed student ${student.name} (${student.student_id})` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 3d. Batch import students (paste CSV/Excel rows)
+// -------------------------------------------------------------
+router.post('/groups/:id/batch-import', authenticateToken, (req, res) => {
+  try {
+    const groupId = req.params.id;
+    const { rawText, mode = 'append' } = req.body;
+
+    if (!rawText || !rawText.trim()) {
+      return res.status(400).json({ error: 'Please provide CSV or Excel rows to import.' });
+    }
+
+    const group = db.prepare('SELECT * FROM class_groups WHERE id = ?').get(groupId);
+    if (!group) return res.status(404).json({ error: 'Class group not found.' });
+
+    const lines = rawText.trim().split(/\r?\n/);
+    const parsedStudents = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.toLowerCase().startsWith('no') || trimmed.toLowerCase().startsWith('id')) continue;
+
+      let parts = trimmed.includes('\t') 
+        ? trimmed.split('\t').map(s => s.trim()) 
+        : trimmed.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+
+      parts = parts.filter(s => s.length > 0);
+
+      const idIdx = parts.findIndex(p => /^e\d+$/i.test(p));
+      if (idIdx !== -1) {
+        const studentNumber = parseInt(parts[idIdx - 1], 10) || null;
+        const studentId = parts[idIdx].toLowerCase();
+        const studentName = parts[idIdx + 1];
+        const sex = (parts[idIdx + 2] || 'M').toUpperCase();
+        if (studentName) {
+          parsedStudents.push({ studentNumber, studentId, studentName, sex });
+        }
+      } else if (parts.length >= 2) {
+        const studentId = parts[0].toLowerCase();
+        const studentName = parts[1];
+        const sex = (parts[2] || 'M').toUpperCase();
+        parsedStudents.push({ studentNumber: null, studentId, studentName, sex });
+      }
+    }
+
+    if (parsedStudents.length === 0) {
+      return res.status(400).json({ error: 'No valid student records found. Ensure rows have ID (e.g. e2025XXXX) and Name.' });
+    }
+
+    const importTx = db.transaction(() => {
+      if (mode === 'replace') {
+        db.prepare('DELETE FROM students WHERE group_id = ?').run(groupId);
+      }
+
+      const upsert = db.prepare(`
+        INSERT INTO students (group_id, student_number, student_id, name, sex)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(group_id, student_id) DO UPDATE SET
+          name = excluded.name,
+          sex = excluded.sex,
+          student_number = COALESCE(excluded.student_number, students.student_number)
+      `);
+
+      let nextNum = (db.prepare('SELECT MAX(student_number) as m FROM students WHERE group_id = ?').get(groupId)?.m || 0) + 1;
+
+      for (const s of parsedStudents) {
+        const num = s.studentNumber || nextNum++;
+        upsert.run(groupId, num, s.studentId, s.studentName, s.sex);
+      }
+    });
+
+    importTx();
+
+    res.json({
+      success: true,
+      message: `Successfully processed ${parsedStudents.length} student records.`,
+      count: parsedStudents.length
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
 // 4. Start a new attendance session for a group
 // -------------------------------------------------------------
 router.post('/sessions', authenticateToken, (req, res) => {
@@ -485,6 +667,71 @@ router.get('/sessions/:id/export-itc-csv', authenticateToken, (req, res) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send('\uFEFF' + csvContent); // BOM for proper UTF-8 Excel rendering
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 12. Quick Add student during live session
+// -------------------------------------------------------------
+router.post('/sessions/:id/quick-add-student', authenticateToken, (req, res) => {
+  try {
+    const sessionId = req.params.id;
+    const { studentId, name, sex = 'M' } = req.body;
+
+    if (!studentId || !name) {
+      return res.status(400).json({ error: 'Student ID and Name are required.' });
+    }
+
+    const session = db.prepare('SELECT * FROM attendance_sessions WHERE id = ?').get(sessionId);
+    if (!session) return res.status(404).json({ error: 'Session not found.' });
+
+    const cleanId = studentId.trim().toLowerCase();
+    const cleanName = name.trim();
+    const cleanSex = (sex || 'M').trim().toUpperCase();
+
+    let student = db.prepare('SELECT * FROM students WHERE group_id = ? AND LOWER(student_id) = ?').get(session.group_id, cleanId);
+    if (!student) {
+      const maxNum = db.prepare('SELECT MAX(student_number) as m FROM students WHERE group_id = ?').get(session.group_id)?.m || 0;
+      const resStudent = db.prepare(`
+        INSERT INTO students (group_id, student_number, student_id, name, sex)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(session.group_id, maxNum + 1, cleanId, cleanName, cleanSex);
+
+      student = {
+        id: resStudent.lastInsertRowid,
+        group_id: session.group_id,
+        student_number: maxNum + 1,
+        student_id: cleanId,
+        name: cleanName,
+        sex: cleanSex
+      };
+    }
+
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO attendance_records (attendance_session_id, student_id, status, check_in_time, method)
+      VALUES (?, ?, 'PRESENT', ?, 'MANUAL')
+      ON CONFLICT(attendance_session_id, student_id) DO UPDATE SET
+        status = 'PRESENT',
+        check_in_time = ?,
+        method = 'MANUAL'
+    `).run(sessionId, student.id, now, now);
+
+    res.status(201).json({
+      success: true,
+      student: {
+        student_id: student.id,
+        student_number: student.student_number,
+        student_code: student.student_id,
+        name: student.name,
+        sex: student.sex,
+        status: 'PRESENT',
+        check_in_time: now,
+        method: 'MANUAL'
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
