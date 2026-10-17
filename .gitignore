@@ -1,0 +1,30 @@
+# Dependencies (DO NOT UPLOAD - npm installs them)
+node_modules/
+client/node_modules/
+
+# Production build artifacts (Render/Vercel will build these via 'npm run build')
+client/dist/
+
+# SQLite Database & Storage (Local database files)
+*.db
+*.db-wal
+*.db-shm
+server/*.db
+server/*.db-wal
+server/*.db-shm
+
+# Environment & Secrets (Never upload private API keys)
+.env
+.env.local
+.env.*.local
+
+# Uploaded diagrams/images (keep folder, ignore uploaded assets)
+uploads/*
+!uploads/.gitkeep
+
+# Logs and OS files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
