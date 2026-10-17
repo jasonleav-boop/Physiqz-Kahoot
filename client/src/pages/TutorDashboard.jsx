@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Play, Plus, Download, Upload, Copy, Check, Trash2, Edit3,
-  Share2, Sparkles, BookOpen, Clock, AlertCircle, Lock, Key, Bot, Loader2
+  Share2, Sparkles, BookOpen, Clock, AlertCircle, Lock, Key, Bot, Loader2,
+  ShieldCheck, Users, UserPlus, UserX, X
 } from 'lucide-react';
 
 export default function TutorDashboard({
@@ -31,6 +32,114 @@ export default function TutorDashboard({
   const [aiCount, setAiCount] = useState(3);
   const [aiApiKey, setAiApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
   const [aiLoading, setAiLoading] = useState(false);
+
+  // Admin Tutor Management (Jason Leav)
+  const isAdmin = tutor?.is_admin || (tutor?.email?.toLowerCase() === 'jasonleav@gmail.com');
+  const [tutorAdminModal, setTutorAdminModal] = useState(false);
+  const [adminTutorsList, setAdminTutorsList] = useState([]);
+  const [currentInviteCode, setCurrentInviteCode] = useState('TECHNO-2026');
+  const [newInviteCodeInput, setNewInviteCodeInput] = useState('');
+  const [adminNewName, setAdminNewName] = useState('');
+  const [adminNewEmail, setAdminNewEmail] = useState('');
+  const [adminNewPassword, setAdminNewPassword] = useState('');
+  const [adminSubmitting, setAdminSubmitting] = useState(false);
+  const [adminMsg, setAdminMsg] = useState('');
+  const [copiedInvite, setCopiedInvite] = useState(false);
+
+  const fetchAdminTutors = async () => {
+    try {
+      const res = await fetch('/api/admin/tutors', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setAdminTutorsList(data.tutors || []);
+        setCurrentInviteCode(data.inviteCode || 'TECHNO-2026');
+        setNewInviteCodeInput(data.inviteCode || 'TECHNO-2026');
+      }
+    } catch (err) {
+      console.error('Failed to load admin tutor data:', err);
+    }
+  };
+
+  const handleOpenAdminModal = () => {
+    setTutorAdminModal(true);
+    fetchAdminTutors();
+  };
+
+  const handleUpdateInviteCode = async (e) => {
+    e.preventDefault();
+    if (!newInviteCodeInput.trim()) return;
+    try {
+      const res = await fetch('/api/admin/invite-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ inviteCode: newInviteCodeInput.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update code');
+      setCurrentInviteCode(data.inviteCode);
+      setAdminMsg('Access code updated successfully!');
+      setTimeout(() => setAdminMsg(''), 3000);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleAdminCreateTutor = async (e) => {
+    e.preventDefault();
+    setAdminSubmitting(true);
+    try {
+      const res = await fetch('/api/admin/create-tutor', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: adminNewName.trim(),
+          email: adminNewEmail.trim(),
+          password: adminNewPassword.trim()
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create tutor');
+      setAdminNewName('');
+      setAdminNewEmail('');
+      setAdminNewPassword('');
+      setAdminMsg(`Tutor account created for ${data.tutor.email}!`);
+      setTimeout(() => setAdminMsg(''), 3000);
+      fetchAdminTutors();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setAdminSubmitting(false);
+    }
+  };
+
+  const handleDeleteTutor = async (id, email) => {
+    if (!window.confirm(`Are you sure you want to remove tutor account ${email}?`)) return;
+    try {
+      const res = await fetch(`/api/admin/tutors/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to remove tutor');
+      fetchAdminTutors();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleCopyInviteCode = () => {
+    navigator.clipboard.writeText(currentInviteCode);
+    setCopiedInvite(true);
+    setTimeout(() => setCopiedInvite(false), 2000);
+  };
 
   const fetchQuizzes = async () => {
     try {
@@ -258,6 +367,18 @@ export default function TutorDashboard({
             <Share2 className="w-3.5 h-3.5 text-violet-400" />
             <span>Import Code</span>
           </button>
+
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={handleOpenAdminModal}
+              className="flex items-center gap-2 px-3.5 py-2.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-xs sm:text-sm rounded-xl border border-amber-500/30 transition-all transform active:scale-95 shadow-sm"
+              title="Manage authorized tutors and registration invite codes"
+            >
+              <ShieldCheck className="w-4 h-4 text-amber-400" />
+              <span>Tutor Access & Codes</span>
+            </button>
+          )}
         </div>
 
         <input
@@ -614,6 +735,184 @@ export default function TutorDashboard({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Tutor Management Modal */}
+      {tutorAdminModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-pop">
+          <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white">Tutor Access Control</h3>
+                  <p className="text-xs text-slate-400">Manage who can register or create tutor accounts</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTutorAdminModal(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {adminMsg && (
+              <div className="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{adminMsg}</span>
+              </div>
+            )}
+
+            {/* Section 1: Tutor Invite / Access Code */}
+            <div className="p-4 bg-slate-800/60 border border-slate-700/60 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Public Registration Access Code</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Colleagues MUST enter this secret code on the signup page to create an account.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm font-bold text-amber-300 px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                    {currentInviteCode}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopyInviteCode}
+                    className="p-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors text-xs flex items-center gap-1"
+                    title="Copy code"
+                  >
+                    {copiedInvite ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedInvite ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Update Code Form */}
+              <form onSubmit={handleUpdateInviteCode} className="flex gap-2 pt-2 border-t border-slate-700/50">
+                <input
+                  type="text"
+                  required
+                  value={newInviteCodeInput}
+                  onChange={(e) => setNewInviteCodeInput(e.target.value.toUpperCase())}
+                  placeholder="Change to new code (e.g. PHYSICS-2026)"
+                  className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-xs font-mono text-white placeholder-slate-500 uppercase focus:outline-none focus:border-amber-400"
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl transition-colors"
+                >
+                  Save New Code
+                </button>
+              </form>
+            </div>
+
+            {/* Section 2: Create Tutor Directly */}
+            <div className="p-4 bg-slate-800/60 border border-slate-700/60 rounded-2xl space-y-3">
+              <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                <UserPlus className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Create Tutor Account Directly</span>
+              </h4>
+              <p className="text-[11px] text-slate-400">
+                Create an account for a fellow tutor directly without needing to give them the invite code.
+              </p>
+
+              <form onSubmit={handleAdminCreateTutor} className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2">
+                <input
+                  type="text"
+                  required
+                  value={adminNewName}
+                  onChange={(e) => setAdminNewName(e.target.value)}
+                  placeholder="Tutor Name / Title"
+                  className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                />
+                <input
+                  type="email"
+                  required
+                  value={adminNewEmail}
+                  onChange={(e) => setAdminNewEmail(e.target.value)}
+                  placeholder="Tutor Email"
+                  className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                />
+                <input
+                  type="password"
+                  required
+                  value={adminNewPassword}
+                  onChange={(e) => setAdminNewPassword(e.target.value)}
+                  placeholder="Password"
+                  className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                />
+                <div className="sm:col-span-3 flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={adminSubmitting}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow transition-colors flex items-center gap-1.5"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>{adminSubmitting ? 'Creating...' : 'Create Tutor Account'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* Section 3: Registered Tutors List */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-slate-400" />
+                <span>Authorized Tutors ({adminTutorsList.length})</span>
+              </h4>
+              <div className="divide-y divide-slate-800 border border-slate-800 rounded-2xl overflow-hidden bg-slate-900/50">
+                {adminTutorsList.map((t) => {
+                  const isPrimary = t.email.toLowerCase() === 'jasonleav@gmail.com';
+                  return (
+                    <div key={t.id} className="p-3 flex items-center justify-between hover:bg-slate-800/40 transition-colors">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-white">{t.name}</span>
+                          {isPrimary && (
+                            <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                              Primary Admin
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400">{t.email}</div>
+                      </div>
+                      {!isPrimary && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTutor(t.id, t.email)}
+                          className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded-lg transition-colors text-xs flex items-center gap-1"
+                          title="Remove tutor access"
+                        >
+                          <UserX className="w-3.5 h-3.5" />
+                          <span>Remove</span>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setTutorAdminModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl transition-colors"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
