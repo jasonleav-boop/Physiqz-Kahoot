@@ -44,7 +44,7 @@ router.post('/upload-image', authenticateToken, upload.single('image'), (req, re
 router.get('/', authenticateToken, (req, res) => {
   try {
     const quizzes = db.prepare(`
-      SELECT id, title, description, topic, share_code, created_at, updated_at,
+      SELECT id, title, description, topic, subject, class_type, share_code, is_shared, created_at, updated_at,
              LENGTH(questions_json) as q_len
       FROM quizzes
       WHERE tutor_id = ?
@@ -66,6 +66,107 @@ router.get('/', authenticateToken, (req, res) => {
     });
 
     res.json(parsed);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get department shared quiz library (quizzes shared by lead lecturers & tutors)
+router.get('/department-library', authenticateToken, (req, res) => {
+  try {
+    const quizzes = db.prepare(`
+      SELECT q.id, q.tutor_id, q.title, q.description, q.topic, q.subject, q.class_type,
+             q.share_code, q.created_at, q.updated_at, q.is_shared,
+             t.name as author_name, t.email as author_email
+      FROM quizzes q
+      JOIN tutors t ON t.id = q.tutor_id
+      WHERE q.is_shared = 1 OR q.tutor_id = ?
+      ORDER BY q.updated_at DESC
+    `).all(req.tutor.id);
+
+    const parsed = quizzes.map(q => {
+      const full = db.prepare('SELECT questions_json FROM quizzes WHERE id = ?').get(q.id);
+      let count = 0;
+      try {
+        const questions = JSON.parse(full.questions_json);
+        count = Array.isArray(questions) ? questions.length : 0;
+      } catch (e) {}
+      return {
+        ...q,
+        questionCount: count,
+        isMine: q.tutor_id === req.tutor.id
+      };
+    });
+
+    res.json(parsed);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Toggle share with department
+router.patch('/:id/toggle-share', authenticateToken, (req, res) => {
+  try {
+    const quizId = req.params.id;
+    const quiz = db.prepare('SELECT * FROM quizzes WHERE id = ?').get(quizId);
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
+
+    const isOwner = quiz.tutor_id === req.tutor.id;
+    const isAdminOrLead = req.tutor.is_admin || req.tutor.role === 'lead';
+    if (!isOwner && !isAdminOrLead) {
+      return res.status(403).json({ error: 'Only the author or lead lecturer can share this quiz.' });
+    }
+
+    const { isShared, subject, classType } = req.body;
+    const newShared = isShared !== undefined ? (isShared ? 1 : 0) : (quiz.is_shared ? 0 : 1);
+    const newSubject = subject ? subject.trim() : (quiz.subject || 'Electricity');
+    const newClassType = classType ? classType.trim() : (quiz.class_type || 'TD');
+
+    db.prepare(`
+      UPDATE quizzes 
+      SET is_shared = ?, subject = ?, class_type = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(newShared, newSubject, newClassType, quizId);
+
+    res.json({
+      success: true,
+      isShared: newShared,
+      subject: newSubject,
+      classType: newClassType,
+      message: newShared ? 'Quiz published to Department Library' : 'Quiz removed from Department Library'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Clone / Duplicate a department quiz into current tutor's account
+router.post('/:id/clone', authenticateToken, (req, res) => {
+  try {
+    const quizId = req.params.id;
+    const quiz = db.prepare('SELECT * FROM quizzes WHERE id = ?').get(quizId);
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
+
+    const newShareCode = generateShareCode();
+    const result = db.prepare(`
+      INSERT INTO quizzes (tutor_id, title, description, topic, subject, class_type, questions_json, share_code, is_shared)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+    `).run(
+      req.tutor.id,
+      `${quiz.title} (My Section)`,
+      quiz.description || '',
+      quiz.topic || 'Physics',
+      quiz.subject || 'Electricity',
+      quiz.class_type || 'TD',
+      quiz.questions_json,
+      newShareCode
+    );
+
+    res.status(201).json({
+      id: result.lastInsertRowid,
+      title: `${quiz.title} (My Section)`,
+      message: 'Quiz cloned to your section library.'
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

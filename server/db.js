@@ -145,13 +145,33 @@ try {
   `);
 } catch (e) {}
 
+try {
+  db.exec(`ALTER TABLE tutors ADD COLUMN role TEXT DEFAULT 'tutor';`);
+} catch (e) {}
+
+try {
+  db.exec(`ALTER TABLE quizzes ADD COLUMN is_shared INTEGER DEFAULT 0;`);
+  db.exec(`ALTER TABLE quizzes ADD COLUMN subject TEXT DEFAULT 'Electricity';`);
+  db.exec(`ALTER TABLE quizzes ADD COLUMN class_type TEXT DEFAULT 'TD';`);
+} catch (e) {}
+
+try {
+  db.exec(`ALTER TABLE attendance_sessions ADD COLUMN subject TEXT DEFAULT 'Electricity';`);
+  db.exec(`ALTER TABLE attendance_sessions ADD COLUMN class_type TEXT DEFAULT 'TD';`);
+} catch (e) {}
+
+try {
+  db.exec(`ALTER TABLE class_groups ADD COLUMN year_level TEXT DEFAULT 'I2';`);
+  db.exec(`UPDATE class_groups SET year_level = CASE WHEN code LIKE 'I1-%' THEN 'I1' ELSE 'I2' END;`);
+} catch (e) {}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS system_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
   INSERT OR IGNORE INTO system_settings (key, value) VALUES ('tutor_invite_code', 'TECHNO-2026');
-  UPDATE tutors SET is_admin = 1 WHERE LOWER(email) = 'jasonleav@gmail.com';
+  UPDATE tutors SET is_admin = 1, role = 'admin' WHERE LOWER(email) = 'jasonleav@gmail.com';
 `);
 
 // Helper to generate unique share code for quizzes

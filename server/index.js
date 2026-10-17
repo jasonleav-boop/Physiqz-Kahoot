@@ -84,10 +84,32 @@ const requireAdmin = (req, res, next) => {
 
 app.get('/api/admin/tutors', authenticateToken, requireAdmin, (req, res) => {
   try {
-    const tutors = db.prepare('SELECT id, name, email, is_admin, created_at FROM tutors ORDER BY created_at DESC').all();
+    const tutors = db.prepare('SELECT id, name, email, is_admin, role, created_at FROM tutors ORDER BY created_at DESC').all();
     const setting = db.prepare("SELECT value FROM system_settings WHERE key = 'tutor_invite_code'").get();
     const inviteCode = setting ? setting.value : 'TECHNO-2026';
     res.json({ tutors, inviteCode });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/admin/tutors/:id/role', authenticateToken, requireAdmin, (req, res) => {
+  try {
+    const tutorId = parseInt(req.params.id, 10);
+    const { role } = req.body;
+    if (!['admin', 'lead', 'tutor'].includes(role)) {
+      return res.status(400).json({ error: 'Role must be admin, lead, or tutor.' });
+    }
+    const target = db.prepare('SELECT id, email FROM tutors WHERE id = ?').get(tutorId);
+    if (!target) {
+      return res.status(404).json({ error: 'Tutor not found.' });
+    }
+    if (target.email.toLowerCase() === 'jasonleav@gmail.com' && role !== 'admin') {
+      return res.status(400).json({ error: 'Cannot change primary administrator role.' });
+    }
+    const isAdmin = role === 'admin' ? 1 : 0;
+    db.prepare('UPDATE tutors SET role = ?, is_admin = ? WHERE id = ?').run(role, isAdmin, tutorId);
+    res.json({ success: true, message: `Tutor role updated to ${role}.` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

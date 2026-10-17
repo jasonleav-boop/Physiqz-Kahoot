@@ -24,6 +24,7 @@ router.get('/groups', authenticateToken, (req, res) => {
         g.code,
         g.department,
         g.academic_year,
+        g.year_level,
         COUNT(s.id) as student_count,
         (
           SELECT MAX(created_at) 
@@ -288,7 +289,13 @@ router.post('/groups/:id/batch-import', authenticateToken, (req, res) => {
 // -------------------------------------------------------------
 router.post('/sessions', authenticateToken, (req, res) => {
   try {
-    const { groupId, title = 'Class Attendance', passcode = '' } = req.body;
+    const { 
+      groupId, 
+      title = 'Class Attendance', 
+      passcode = '',
+      subject = 'Electricity',
+      classType = 'TD'
+    } = req.body;
     if (!groupId) {
       return res.status(400).json({ error: 'groupId is required.' });
     }
@@ -309,9 +316,9 @@ router.post('/sessions', authenticateToken, (req, res) => {
 
     const startTransaction = db.transaction(() => {
       const result = db.prepare(`
-        INSERT INTO attendance_sessions (group_id, tutor_id, session_code, title, date, passcode, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, 1)
-      `).run(groupId, tutorId, sessionCode, title.trim(), today, passcode ? passcode.trim() : null);
+        INSERT INTO attendance_sessions (group_id, tutor_id, session_code, title, date, passcode, is_active, subject, class_type)
+        VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+      `).run(groupId, tutorId, sessionCode, title.trim(), today, passcode ? passcode.trim() : null, subject.trim(), classType.trim());
 
       const sessionId = result.lastInsertRowid;
 
@@ -337,6 +344,8 @@ router.post('/sessions', authenticateToken, (req, res) => {
       groupCode: group.code,
       department: group.department,
       title,
+      subject,
+      classType,
       date: today,
       passcode: passcode || null
     });
@@ -647,6 +656,7 @@ router.get('/sessions/:id/export-itc-csv', authenticateToken, (req, res) => {
       'INSTITUT DE TECHNOLOGIE DU CAMBODGE,,,',
       `${session.department || 'Département de Tronc Commun'},,,`,
       `"LISTE D'ABSENT DU GROUPE ${session.group_code}, Anné ${session.academic_year || '2026-2027'}",,,`,
+      `"Matière: ${session.subject || 'Electricity'} | Type: ${session.class_type || 'TD'} | Enseignant: ${session.tutor_name || ''}",,,`,
       `No,ID,Noms,Sexe,${session.date || 'Attendance'}`
     ];
 
@@ -662,7 +672,8 @@ router.get('/sessions/:id/export-itc-csv', authenticateToken, (req, res) => {
     });
 
     const csvContent = lines.join('\n');
-    const filename = `ITC_Attendance_${session.group_code}_${session.date || 'Session'}.csv`;
+    const safeSubject = (session.subject || 'Physics').replace(/[^a-zA-Z0-9]/g, '_');
+    const filename = `ITC_Attendance_${session.group_code}_${safeSubject}_${session.class_type || 'TD'}_${session.date || 'Session'}.csv`;
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -731,6 +742,89 @@ router.post('/sessions/:id/quick-add-student', authenticateToken, (req, res) => 
         check_in_time: now,
         method: 'MANUAL'
       }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 13. Cohort Batch Import (e.g. all Year 1 classes or updated Year 2)
+// -------------------------------------------------------------
+router.post('/cohort-import', authenticateToken, (req, res) => {
+  try {
+    const { rawText, yearLevel = 'I1', department = 'Département de Tronc Commun', academicYear = '2026-2027' } = req.body;
+    if (!rawText || !rawText.trim()) {
+      return res.status(400).json({ error: 'Roster text is required.' });
+    }
+
+    const lines = rawText.split(/\r?\n/);
+    const insertGroup = db.prepare(`
+      INSERT OR IGNORE INTO class_groups (code, department, academic_year, year_level)
+      VALUES (?, ?, ?, ?)
+    `);
+    const insertStudent = db.prepare(`
+      INSERT OR IGNORE INTO students (group_id, student_number, student_id, name, sex)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const getGroup = db.prepare('SELECT id FROM class_groups WHERE code = ?');
+
+    let groupsCreated = 0;
+    let studentsAdded = 0;
+
+    const cohortTx = db.transaction(() => {
+      let currentGroupId = null;
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        // Check if line is a section header like "LISTE D'ABSENT DU GROUPE I1-GCA-A"
+        const groupMatch = trimmed.match(/(?:LISTE D['’]ABSENT DU GROUPE|GROUPE:?)\s+([A-Za-z0-9\-]+)/i);
+        if (groupMatch) {
+          const groupCode = groupMatch[1].trim().toUpperCase();
+          const info = insertGroup.run(groupCode, department, academicYear, yearLevel);
+          if (info.changes > 0) groupsCreated++;
+          currentGroupId = getGroup.get(groupCode)?.id;
+          continue;
+        }
+
+        let parts = trimmed.includes('\t') 
+          ? trimmed.split('\t').map(s => s.trim()) 
+          : trimmed.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+        parts = parts.filter(s => s.length > 0);
+
+        // Check if row begins with a group code (e.g. "I1-GCA-A", "I1-GCI-1")
+        if (parts.length >= 3 && /^[A-Za-z0-9]+-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)?$/i.test(parts[0])) {
+          const groupCode = parts[0].trim().toUpperCase();
+          const info = insertGroup.run(groupCode, department, academicYear, yearLevel);
+          if (info.changes > 0) groupsCreated++;
+          currentGroupId = getGroup.get(groupCode)?.id;
+        }
+
+        if (currentGroupId) {
+          const idIdx = parts.findIndex(p => /^e\d+$/i.test(p));
+          if (idIdx !== -1) {
+            const studentNumber = parseInt(parts[idIdx - 1], 10) || null;
+            const studentId = parts[idIdx].toLowerCase();
+            const studentName = parts[idIdx + 1];
+            const sex = (parts[idIdx + 2] || 'M').toUpperCase();
+            if (studentName) {
+              const resSt = insertStudent.run(currentGroupId, studentNumber, studentId, studentName, sex);
+              if (resSt.changes > 0) studentsAdded++;
+            }
+          }
+        }
+      }
+    });
+
+    cohortTx();
+
+    res.json({
+      success: true,
+      message: `Cohort import completed: ${groupsCreated} groups created, ${studentsAdded} students imported.`,
+      groupsCreated,
+      studentsAdded
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

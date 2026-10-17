@@ -234,9 +234,12 @@ export default function AttendancePresenterView({ sessionInfo, token, onBack }) 
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                 {session?.group_code || sessionInfo.groupCode}
+              </span>
+              <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                {session?.subject || sessionInfo.subject || 'Electricity'} ({session?.class_type || sessionInfo.classType || 'TD'})
               </span>
               <span className="text-[10px] font-semibold text-slate-400">
                 {session?.department || 'Département de Tronc Commun'} • {session?.academic_year || '2026-2027'}

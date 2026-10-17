@@ -6,7 +6,13 @@ const JWT_SECRET = process.env.JWT_SECRET || 'physics_jwt_secret_key_dtc_kahoot_
 
 function generateToken(tutor) {
   return jwt.sign(
-    { id: tutor.id, email: tutor.email, name: tutor.name, is_admin: tutor.is_admin ? 1 : 0 },
+    {
+      id: tutor.id,
+      email: tutor.email,
+      name: tutor.name,
+      is_admin: tutor.is_admin ? 1 : 0,
+      role: tutor.role || (tutor.is_admin ? 'admin' : 'tutor')
+    },
     JWT_SECRET,
     { expiresIn: '7d' }
   );
@@ -29,17 +35,18 @@ function registerTutor(name, email, password, inviteCode, skipCodeCheck = false)
   const salt = bcrypt.genSaltSync(10);
   const passwordHash = bcrypt.hashSync(password, salt);
   const isAdmin = email.toLowerCase().trim() === 'jasonleav@gmail.com' ? 1 : 0;
+  const role = isAdmin ? 'admin' : 'tutor';
 
-  const result = db.prepare('INSERT INTO tutors (name, email, password_hash, is_admin) VALUES (?, ?, ?, ?)')
-    .run(name, email.toLowerCase().trim(), passwordHash, isAdmin);
+  const result = db.prepare('INSERT INTO tutors (name, email, password_hash, is_admin, role) VALUES (?, ?, ?, ?, ?)')
+    .run(name, email.toLowerCase().trim(), passwordHash, isAdmin, role);
 
-  const tutor = { id: result.lastInsertRowid, name, email: email.toLowerCase().trim(), is_admin: isAdmin };
+  const tutor = { id: result.lastInsertRowid, name, email: email.toLowerCase().trim(), is_admin: isAdmin, role };
   const token = generateToken(tutor);
   return { tutor, token };
 }
 
 function loginTutor(email, password) {
-  const tutor = db.prepare('SELECT id, name, email, password_hash, is_admin FROM tutors WHERE LOWER(email) = LOWER(?)')
+  const tutor = db.prepare('SELECT id, name, email, password_hash, is_admin, role FROM tutors WHERE LOWER(email) = LOWER(?)')
     .get(email.trim());
 
   if (!tutor) {
@@ -52,7 +59,8 @@ function loginTutor(email, password) {
   }
 
   const isAdmin = tutor.is_admin || (tutor.email.toLowerCase() === 'jasonleav@gmail.com' ? 1 : 0);
-  const tutorData = { id: tutor.id, name: tutor.name, email: tutor.email, is_admin: isAdmin };
+  const role = tutor.role || (isAdmin ? 'admin' : 'tutor');
+  const tutorData = { id: tutor.id, name: tutor.name, email: tutor.email, is_admin: isAdmin, role };
   const token = generateToken(tutorData);
   return { tutor: tutorData, token };
 }

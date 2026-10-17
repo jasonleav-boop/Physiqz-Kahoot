@@ -45,9 +45,23 @@ export default function AttendanceDashboard({ token, onStartAttendanceSession })
   // Modal 3: Launch Attendance Session Setup
   const [launchModalGroup, setLaunchModalGroup] = useState(null);
   const [sessionTitle, setSessionTitle] = useState('Physics Lecture & Attendance');
+  const [sessionSubject, setSessionSubject] = useState('Electricity');
+  const [sessionClassType, setSessionClassType] = useState('TD');
   const [sessionPasscode, setSessionPasscode] = useState('');
   const [usePasscode, setUsePasscode] = useState(false);
   const [startingSession, setStartingSession] = useState(false);
+
+  // Year Level Filter (I2 current, I1 arriving soon)
+  const [selectedYearLevel, setSelectedYearLevel] = useState('ALL');
+
+  // Modal 4: Cohort Batch Import (e.g. Year 1 students arriving soon)
+  const [showCohortModal, setShowCohortModal] = useState(false);
+  const [cohortRawText, setCohortRawText] = useState('');
+  const [cohortYearLevel, setCohortYearLevel] = useState('I1');
+  const [cohortAcademicYear, setCohortAcademicYear] = useState('2026-2027');
+  const [cohortDept, setCohortDept] = useState('Département de Tronc Commun');
+  const [cohortImportLoading, setCohortImportLoading] = useState(false);
+  const [cohortImportMsg, setCohortImportMsg] = useState('');
 
   const DEPARTMENTS = [
     { key: 'ALL', label: 'All Groups' },
@@ -309,6 +323,8 @@ export default function AttendanceDashboard({ token, onStartAttendanceSession })
         body: JSON.stringify({
           groupId: launchModalGroup.id,
           title: sessionTitle.trim() || 'Class Attendance',
+          subject: sessionSubject,
+          classType: sessionClassType,
           passcode: usePasscode && sessionPasscode.trim() ? sessionPasscode.trim() : ''
         })
       });
@@ -330,14 +346,57 @@ export default function AttendanceDashboard({ token, onStartAttendanceSession })
     }
   };
 
+  // Cohort Import Handler (e.g. Year 1 incoming cohort)
+  const handleCohortImport = async (e) => {
+    e.preventDefault();
+    if (!cohortRawText.trim()) return;
+
+    try {
+      setCohortImportLoading(true);
+      setCohortImportMsg('');
+      const res = await fetch('/api/attendance/cohort-import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          rawText: cohortRawText,
+          yearLevel: cohortYearLevel,
+          academicYear: cohortAcademicYear,
+          department: cohortDept
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to import cohort');
+
+      setCohortImportMsg(`🎉 ${data.message}`);
+      setCohortRawText('');
+      await fetchGroups();
+      setTimeout(() => {
+        setShowCohortModal(false);
+        setCohortImportMsg('');
+      }, 2500);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setCohortImportLoading(false);
+    }
+  };
+
   const filteredGroups = groups.filter(g => {
     const matchesSearch = g.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           g.department.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesDept = selectedDept === 'ALL' || g.code.includes(`-${selectedDept}-`);
-    return matchesSearch && matchesDept;
+    const groupYear = g.year_level || (g.code.startsWith('I1-') ? 'I1' : 'I2');
+    const matchesYear = selectedYearLevel === 'ALL' || groupYear === selectedYearLevel;
+    return matchesSearch && matchesDept && matchesYear;
   });
 
   const totalStudents = groups.reduce((acc, g) => acc + (g.student_count || 0), 0);
+  const i2Count = groups.filter(g => (g.year_level || (g.code.startsWith('I1-') ? 'I1' : 'I2')) === 'I2').length;
+  const i1Count = groups.filter(g => (g.year_level || (g.code.startsWith('I1-') ? 'I1' : 'I2')) === 'I1').length;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8 animate-fadeIn">
@@ -364,7 +423,7 @@ export default function AttendanceDashboard({ token, onStartAttendanceSession })
         </div>
 
         {/* Quick Stats & Create Group */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex flex-wrap items-center gap-3 shrink-0">
           <div className="px-4 py-3 bg-slate-900/80 border border-slate-800 rounded-2xl flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-600/30 text-indigo-400 flex items-center justify-center font-bold">
               <Users className="w-5 h-5" />
@@ -374,6 +433,19 @@ export default function AttendanceDashboard({ token, onStartAttendanceSession })
               <div className="text-xs text-slate-400">{totalStudents} Total Students</div>
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setShowCohortModal(true);
+              setCohortYearLevel('I1');
+            }}
+            className="px-4 py-3 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white text-xs font-bold rounded-2xl shadow-lg flex items-center gap-2 transition transform active:scale-95"
+            title="Batch import Year 1 cohort from raw spreadsheet or text"
+          >
+            <Upload className="w-4 h-4" />
+            <span>📥 Import Year 1 Cohort</span>
+          </button>
 
           <button
             type="button"
@@ -388,6 +460,43 @@ export default function AttendanceDashboard({ token, onStartAttendanceSession })
 
       {/* Filter and Search Bar */}
       <div className="space-y-4">
+        {/* Cohort / Year Level Tabs */}
+        <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+          <button
+            type="button"
+            onClick={() => setSelectedYearLevel('ALL')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              selectedYearLevel === 'ALL'
+                ? 'bg-indigo-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            All Cohorts ({groups.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedYearLevel('I2')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              selectedYearLevel === 'I2'
+                ? 'bg-indigo-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            Year 2 (I2) • {i2Count} Groups
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedYearLevel('I1')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              selectedYearLevel === 'I1'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            Year 1 (I1) • {i1Count > 0 ? `${i1Count} Groups` : 'Arriving Soon'}
+          </button>
+        </div>
+
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -537,6 +646,41 @@ export default function AttendanceDashboard({ token, onStartAttendanceSession })
                   placeholder="e.g. Physics Recitation - Week 4"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500"
                 />
+              </div>
+
+              {/* Subject (Matière) and Course Type (TD/Cours/TP) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-950/70 border border-slate-800 rounded-2xl">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
+                    Subject / Matière
+                  </label>
+                  <select
+                    value={sessionSubject}
+                    onChange={(e) => setSessionSubject(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 font-semibold"
+                  >
+                    <option value="Electricity">⚡ Electricity (អគ្គិសនី)</option>
+                    <option value="Mechanics">⚙️ Mechanics (មេកានិច)</option>
+                    <option value="Thermodynamics">🔥 Thermodynamics</option>
+                    <option value="Optics">🔬 Optics (អុបទិក)</option>
+                    <option value="General Physics">General Physics</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
+                    Type de Cours
+                  </label>
+                  <select
+                    value={sessionClassType}
+                    onChange={(e) => setSessionClassType(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs font-bold text-emerald-400 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="TD">TD (Travaux Dirigés / Recitation)</option>
+                    <option value="Cours">Cours (Amphithéâtre / Lecture)</option>
+                    <option value="TP">TP (Travaux Pratiques / Lab)</option>
+                  </select>
+                </div>
               </div>
 
               <div className="p-3.5 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-3">
@@ -1000,6 +1144,113 @@ export default function AttendanceDashboard({ token, onStartAttendanceSession })
                 Done
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL 4: Cohort Batch Import (e.g. Year 1 Incoming Cohort) */}
+      {/* ======================================================== */}
+      {showCohortModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 sm:p-8 space-y-5 shadow-2xl animate-pop max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-teal-500/20 text-teal-400 border border-teal-500/30 flex items-center justify-center font-bold">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white">Import Entire Student Cohort</h3>
+                  <p className="text-xs text-slate-400">Batch-register all groups & student rosters for Year 1 (I1) or Year 2 (I2)</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCohortModal(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {cohortImportMsg && (
+              <div className="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{cohortImportMsg}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleCohortImport} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-300">Cohort / Year Level</label>
+                  <select
+                    value={cohortYearLevel}
+                    onChange={(e) => setCohortYearLevel(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-teal-300 font-bold focus:outline-none focus:border-teal-500"
+                  >
+                    <option value="I1">Year 1 (I1 - Tronc Commun)</option>
+                    <option value="I2">Year 2 (I2 - Tronc Commun)</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-300">Academic Year</label>
+                  <input
+                    type="text"
+                    value={cohortAcademicYear}
+                    onChange={(e) => setCohortAcademicYear(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-300">Department</label>
+                  <input
+                    type="text"
+                    value={cohortDept}
+                    onChange={(e) => setCohortDept(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-300">
+                    Paste Student Data / Excel Rows
+                  </label>
+                  <span className="text-[11px] text-slate-400">Auto-detects classes & IDs</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  You can paste the entire Excel file content from the Tronc Commun administration. Supports headers like <code className="text-teal-400">LISTE D'ABSENT DU GROUPE I1-GCA-A</code> or tabular rows with group code in the first column.
+                </p>
+                <textarea
+                  rows={8}
+                  value={cohortRawText}
+                  onChange={(e) => setCohortRawText(e.target.value)}
+                  placeholder={"LISTE D'ABSENT DU GROUPE I1-GCA-A\n1\te20260001\tSOK Dara\tM\n2\te20260002\tCHAN Bopha\tF\n\nLISTE D'ABSENT DU GROUPE I1-GCI-A\n1\te20260050\tKONG Vicheka\tM"}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-2xl text-xs font-mono text-slate-200 placeholder-slate-600 focus:outline-none focus:border-teal-500"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-between border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowCohortModal(false)}
+                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={cohortImportLoading || !cohortRawText.trim()}
+                  className="px-6 py-2.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-teal-600/30 transition transform active:scale-95 disabled:opacity-50 flex items-center gap-2"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>{cohortImportLoading ? 'Importing Cohort...' : 'Import All Classes & Students'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
