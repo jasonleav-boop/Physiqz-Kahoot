@@ -124,6 +124,19 @@ db.exec(`
     FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE,
     UNIQUE(attendance_session_id, student_id)
   );
+
+  CREATE TABLE IF NOT EXISTS tutor_class_assignments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tutor_id INTEGER NOT NULL,
+    group_id INTEGER NOT NULL,
+    subject TEXT NOT NULL DEFAULT 'Electricity',
+    class_type TEXT NOT NULL DEFAULT 'TD',
+    academic_year TEXT DEFAULT '2026-2027',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(tutor_id) REFERENCES tutors(id) ON DELETE CASCADE,
+    FOREIGN KEY(group_id) REFERENCES class_groups(id) ON DELETE CASCADE,
+    UNIQUE(group_id, subject, class_type)
+  );
 `);
 
 // Safe migration for sessions columns

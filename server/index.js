@@ -118,11 +118,23 @@ app.get('/api/admin/tutors', authenticateToken, requireLeadOrAdmin, (req, res) =
         FROM attendance_sessions WHERE tutor_id = ?
       `).get(t.id);
 
-      // Distinct classes and sections handled
-      const classesHandled = db.prepare(`
-        SELECT DISTINCT g.code as group_code, g.year_level, a.subject, a.class_type,
+      // Distinct classes handled (both explicit assignments and recorded teaching)
+      const explicitAssignments = db.prepare(`
+        SELECT g.id as group_id, g.code as group_code, g.year_level, tca.subject, tca.class_type,
+               (SELECT COUNT(DISTINCT a.id) FROM attendance_sessions a WHERE a.tutor_id = tca.tutor_id AND a.group_id = g.id AND a.subject = tca.subject AND a.class_type = tca.class_type) as session_count,
+               (SELECT COUNT(*) FROM students st WHERE st.group_id = g.id) as student_count,
+               1 as is_assigned
+        FROM tutor_class_assignments tca
+        JOIN class_groups g ON g.id = tca.group_id
+        WHERE tca.tutor_id = ?
+        ORDER BY g.code ASC
+      `).all(t.id);
+
+      const recordedClasses = db.prepare(`
+        SELECT DISTINCT g.id as group_id, g.code as group_code, g.year_level, a.subject, a.class_type,
                COUNT(DISTINCT a.id) as session_count,
-               (SELECT COUNT(*) FROM students st WHERE st.group_id = g.id) as student_count
+               (SELECT COUNT(*) FROM students st WHERE st.group_id = g.id) as student_count,
+               0 as is_assigned
         FROM attendance_sessions a
         JOIN class_groups g ON g.id = a.group_id
         WHERE a.tutor_id = ?
@@ -130,9 +142,19 @@ app.get('/api/admin/tutors', authenticateToken, requireLeadOrAdmin, (req, res) =
         ORDER BY g.code ASC
       `).all(t.id);
 
+      const seenKeys = new Set();
+      const combinedClasses = [];
+      for (const item of [...explicitAssignments, ...recordedClasses]) {
+        const key = `${item.group_code}:::${item.subject}:::${item.class_type}`;
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          combinedClasses.push(item);
+        }
+      }
+
       return {
         ...t,
-        classesHandled,
+        classesHandled: combinedClasses,
         stats: {
           totalQuizzes: quizStats.total_quizzes || 0,
           sharedQuizzes: quizStats.shared_quizzes || 0,
@@ -147,6 +169,139 @@ app.get('/api/admin/tutors', authenticateToken, requireLeadOrAdmin, (req, res) =
     const setting = db.prepare("SELECT value FROM system_settings WHERE key = 'tutor_invite_code'").get();
     const inviteCode = setting ? setting.value : 'TECHNO-2026';
     res.json({ tutors: enrichedTutors, inviteCode });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET all class groups and their assignment status for a given subject & class type
+app.get('/api/admin/class-assignments', authenticateToken, requireLeadOrAdmin, (req, res) => {
+  try {
+    const { subject = 'Electricity', classType = 'TD', tutorId } = req.query;
+    const targetTutorId = tutorId ? parseInt(tutorId, 10) : null;
+
+    const groups = db.prepare(`
+      SELECT g.id, g.code, g.year_level, g.department,
+             COUNT(s.id) as student_count,
+             tca.id as assignment_id,
+             tca.tutor_id as assigned_tutor_id,
+             t.name as assigned_tutor_name,
+             t.email as assigned_tutor_email
+      FROM class_groups g
+      LEFT JOIN students s ON s.group_id = g.id
+      LEFT JOIN tutor_class_assignments tca ON tca.group_id = g.id AND tca.subject = ? AND tca.class_type = ?
+      LEFT JOIN tutors t ON t.id = tca.tutor_id
+      GROUP BY g.id
+      ORDER BY g.code ASC
+    `).all(subject, classType);
+
+    const mapped = groups.map(g => ({
+      id: g.id,
+      code: g.code,
+      year_level: g.year_level,
+      department: g.department,
+      student_count: g.student_count || 0,
+      assignedTutorId: g.assigned_tutor_id,
+      assignedTutorName: g.assigned_tutor_name,
+      assignedTutorEmail: g.assigned_tutor_email,
+      isAssigned: !!g.assigned_tutor_id,
+      isAssignedToCurrent: targetTutorId ? g.assigned_tutor_id === targetTutorId : false,
+      isTakenByOther: targetTutorId ? (!!g.assigned_tutor_id && g.assigned_tutor_id !== targetTutorId) : !!g.assigned_tutor_id
+    }));
+
+    res.json({
+      subject,
+      classType,
+      targetTutorId,
+      groups: mapped
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST assign classes to a tutor with conflict transfer and auto summary regeneration
+app.post('/api/admin/tutors/:id/assign-classes', authenticateToken, requireLeadOrAdmin, (req, res) => {
+  try {
+    const tutorId = parseInt(req.params.id, 10);
+    const { subject = 'Electricity', classType = 'TD', selectedGroupIds = [], academicYear = '2026-2027' } = req.body;
+
+    const tutor = db.prepare('SELECT id, name FROM tutors WHERE id = ?').get(tutorId);
+    if (!tutor) return res.status(404).json({ error: 'Tutor not found.' });
+
+    const cleanGroupIds = Array.isArray(selectedGroupIds) ? selectedGroupIds.map(id => parseInt(id, 10)).filter(Boolean) : [];
+
+    const tx = db.transaction(() => {
+      // 1. Delete groups for this tutor in this subject/classType that are no longer selected
+      if (cleanGroupIds.length > 0) {
+        const placeholders = cleanGroupIds.map(() => '?').join(',');
+        db.prepare(`
+          DELETE FROM tutor_class_assignments 
+          WHERE tutor_id = ? AND subject = ? AND class_type = ? AND group_id NOT IN (${placeholders})
+        `).run(tutorId, subject, classType, ...cleanGroupIds);
+      } else {
+        db.prepare(`
+          DELETE FROM tutor_class_assignments 
+          WHERE tutor_id = ? AND subject = ? AND class_type = ?
+        `).run(tutorId, subject, classType);
+      }
+
+      // 2. Upsert selected groups (transfers group if previously assigned to another tutor)
+      const upsert = db.prepare(`
+        INSERT INTO tutor_class_assignments (tutor_id, group_id, subject, class_type, academic_year)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(group_id, subject, class_type) DO UPDATE SET
+          tutor_id = excluded.tutor_id,
+          academic_year = excluded.academic_year
+      `);
+
+      for (const gid of cleanGroupIds) {
+        upsert.run(tutorId, gid, subject, classType, academicYear);
+      }
+
+      // 3. Helper to rebuild assigned_classes text summary
+      const updateTutorSummary = (tid) => {
+        const allAssignments = db.prepare(`
+          SELECT g.code, tca.subject, tca.class_type
+          FROM tutor_class_assignments tca
+          JOIN class_groups g ON g.id = tca.group_id
+          WHERE tca.tutor_id = ?
+          ORDER BY tca.subject, tca.class_type, g.code
+        `).all(tid);
+
+        const grouped = {};
+        for (const a of allAssignments) {
+          const key = `${a.subject} (${a.class_type})`;
+          if (!grouped[key]) grouped[key] = [];
+          grouped[key].push(a.code);
+        }
+
+        const summary = Object.entries(grouped)
+          .map(([course, codes]) => `${codes.join(', ')} [${course}]`)
+          .join(' • ');
+
+        db.prepare('UPDATE tutors SET assigned_classes = ? WHERE id = ?').run(summary, tid);
+        return summary;
+      };
+
+      const mySummary = updateTutorSummary(tutorId);
+
+      // Also refresh summary for any other tutors who had groups re-assigned
+      const otherTutors = db.prepare('SELECT id FROM tutors WHERE id != ?').all(tutorId);
+      for (const ot of otherTutors) {
+        updateTutorSummary(ot.id);
+      }
+
+      return mySummary;
+    });
+
+    const assignedClasses = tx();
+
+    res.json({
+      success: true,
+      assignedClasses,
+      message: `Successfully updated class assignments for ${tutor.name}.`
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

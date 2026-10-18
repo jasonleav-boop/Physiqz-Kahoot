@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck, Users, BookOpen, Play, UserCheck, Calendar,
   Download, ArrowLeft, Search, Filter, Check, Edit2, X,
-  Clock, AlertCircle, BarChart3, ChevronRight, Award, RefreshCw, FileSpreadsheet
+  Clock, AlertCircle, BarChart3, ChevronRight, Award, RefreshCw, FileSpreadsheet,
+  Lock, CheckSquare, Square, AlertTriangle, Sparkles
 } from 'lucide-react';
 
 export default function FacultyReportsView({ token, tutor: currentTutor, onBack }) {
@@ -18,10 +19,17 @@ export default function FacultyReportsView({ token, tutor: currentTutor, onBack 
   const [reportsLoading, setReportsLoading] = useState(false);
   const [activeReportTab, setActiveReportTab] = useState('quizzes'); // 'quizzes' | 'attendance' | 'quizzes-authored'
 
-  // Edit Assigned Classes Modal
+  // Interactive Class Assignment State
   const [editingClassesTutor, setEditingClassesTutor] = useState(null);
-  const [assignedClassesInput, setAssignedClassesInput] = useState('');
+  const [assignmentSubject, setAssignmentSubject] = useState('Electricity');
+  const [assignmentClassType, setAssignmentClassType] = useState('TD');
+  const [availableGroups, setAvailableGroups] = useState([]);
+  const [selectedGroupIds, setSelectedGroupIds] = useState(new Set());
+  const [assignmentSearch, setAssignmentSearch] = useState('');
+  const [assignmentDeptFilter, setAssignmentDeptFilter] = useState('ALL');
+  const [groupsLoading, setGroupsLoading] = useState(false);
   const [savingClasses, setSavingClasses] = useState(false);
+  const [transferWarning, setTransferWarning] = useState(null);
 
   // View specific attendance sheet modal
   const [viewingAttendanceSession, setViewingAttendanceSession] = useState(null);
@@ -66,27 +74,113 @@ export default function FacultyReportsView({ token, tutor: currentTutor, onBack 
     }
   };
 
-  // Save Assigned Classes
-  const handleSaveAssignedClasses = async (e) => {
+  // Fetch class groups and their assignment status for the chosen course
+  const fetchClassAssignments = async (tutorId, subject, classType) => {
+    try {
+      setGroupsLoading(true);
+      const res = await fetch(`/api/admin/class-assignments?subject=${encodeURIComponent(subject)}&classType=${encodeURIComponent(classType)}&tutorId=${tutorId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load class groups');
+      
+      const groups = data.groups || [];
+      setAvailableGroups(groups);
+
+      // Pre-select groups that are currently assigned to this tutor
+      const initialSelected = new Set();
+      groups.forEach(g => {
+        if (g.isAssignedToCurrent) {
+          initialSelected.add(g.id);
+        }
+      });
+      setSelectedGroupIds(initialSelected);
+      setTransferWarning(null);
+    } catch (err) {
+      console.error('Failed to load class assignments:', err);
+    } finally {
+      setGroupsLoading(false);
+    }
+  };
+
+  // Open Assign Classes Modal
+  const handleOpenAssignModal = (tutor) => {
+    setEditingClassesTutor(tutor);
+    setAssignmentSubject('Electricity');
+    setAssignmentClassType('TD');
+    setAssignmentSearch('');
+    setAssignmentDeptFilter('ALL');
+    setTransferWarning(null);
+    fetchClassAssignments(tutor.id, 'Electricity', 'TD');
+  };
+
+  // Switch Course/Subject in modal
+  const handleCourseChange = (newSubject, newType) => {
+    setAssignmentSubject(newSubject);
+    setAssignmentClassType(newType);
+    setTransferWarning(null);
+    if (editingClassesTutor) {
+      fetchClassAssignments(editingClassesTutor.id, newSubject, newType);
+    }
+  };
+
+  // Toggle selection for a group
+  const handleToggleGroup = (group) => {
+    const next = new Set(selectedGroupIds);
+    if (next.has(group.id)) {
+      next.delete(group.id);
+    } else {
+      if (group.isTakenByOther) {
+        setTransferWarning(`Note: Group ${group.code} is currently assigned to ${group.assignedTutorName}. Checking it will transfer it to ${editingClassesTutor.name}.`);
+      }
+      next.add(group.id);
+    }
+    setSelectedGroupIds(next);
+  };
+
+  // Select all available groups for current filter
+  const handleSelectAllAvailable = (filtered) => {
+    const next = new Set(selectedGroupIds);
+    filtered.forEach(g => {
+      if (!g.isTakenByOther || g.isAssignedToCurrent) {
+        next.add(g.id);
+      }
+    });
+    setSelectedGroupIds(next);
+  };
+
+  // Deselect all
+  const handleDeselectAll = () => {
+    setSelectedGroupIds(new Set());
+  };
+
+  // Save assignments
+  const handleSaveAssignments = async (e) => {
     e.preventDefault();
     if (!editingClassesTutor) return;
     try {
       setSavingClasses(true);
-      const res = await fetch(`/api/admin/tutors/${editingClassesTutor.id}/assigned-classes`, {
-        method: 'PATCH',
+      const res = await fetch(`/api/admin/tutors/${editingClassesTutor.id}/assign-classes`, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ assignedClasses: assignedClassesInput.trim() })
+        body: JSON.stringify({
+          subject: assignmentSubject,
+          classType: assignmentClassType,
+          selectedGroupIds: Array.from(selectedGroupIds)
+        })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to update assigned classes');
+      if (!res.ok) throw new Error(data.error || 'Failed to save class assignments');
+
       setEditingClassesTutor(null);
       fetchTutors();
       if (selectedTutorId === editingClassesTutor.id) {
         handleInspectTutor(selectedTutorId);
       }
+      alert(data.message || 'Class assignments updated successfully!');
     } catch (err) {
       alert(err.message);
     } finally {
@@ -133,7 +227,7 @@ export default function FacultyReportsView({ token, tutor: currentTutor, onBack 
     }
   };
 
-  // Filter tutors
+  // Filter tutors in main list
   const filteredTutors = tutors.filter((t) => {
     const query = searchQuery.toLowerCase();
     const matchesQuery = t.name.toLowerCase().includes(query) ||
@@ -150,6 +244,23 @@ export default function FacultyReportsView({ token, tutor: currentTutor, onBack 
   const totalLiveSessions = tutors.reduce((acc, t) => acc + (t.stats?.totalSessions || 0), 0);
   const totalStudentsReached = tutors.reduce((acc, t) => acc + (t.stats?.totalStudents || 0), 0);
   const totalAttendanceSheets = tutors.reduce((acc, t) => acc + (t.stats?.totalAttendanceSessions || 0), 0);
+
+  // Filter groups in assignment modal
+  const filteredAssignmentGroups = availableGroups.filter((g) => {
+    const q = assignmentSearch.toLowerCase().trim();
+    const matchesSearch = !q || g.code.toLowerCase().includes(q) || (g.department || '').toLowerCase().includes(q);
+    const matchesDept = assignmentDeptFilter === 'ALL' || g.code.includes(`-${assignmentDeptFilter}-`) || g.code.startsWith(`I2-${assignmentDeptFilter}`);
+    return matchesSearch && matchesDept;
+  });
+
+  // Distinct department codes for quick filter chips (e.g. GCA, GEE, GIM, GCI, GTI, AMS, GAR, GGG, GIC, GRU, GTR)
+  const distinctDepts = ['ALL', 'GCA', 'GEE', 'GIM', 'GCI', 'GTI', 'AMS', 'GAR', 'GGG', 'GIC', 'GRU', 'GTR'];
+
+  // Count total students in currently selected groups
+  const totalStudentsSelected = Array.from(selectedGroupIds).reduce((acc, gid) => {
+    const g = availableGroups.find(item => item.id === gid);
+    return acc + (g?.student_count || 0);
+  }, 0);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8 animate-pop">
@@ -174,7 +285,7 @@ export default function FacultyReportsView({ token, tutor: currentTutor, onBack 
             Faculty Directory, Classes & Reports
           </h1>
           <p className="text-xs sm:text-sm text-slate-300 max-w-2xl">
-            Track each instructor's assigned class sections, view live quiz session results, and inspect recorded class attendance sheets.
+            Assign class sections with live conflict detection, view quiz session results, and inspect recorded class attendance sheets.
           </p>
         </div>
 
@@ -341,7 +452,7 @@ export default function FacultyReportsView({ token, tutor: currentTutor, onBack 
                       </span>
                       {hasAssigned && (
                         <span className="text-[11px] text-amber-300 font-semibold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
-                          Assigned: {t.assigned_classes}
+                          {t.assigned_classes}
                         </span>
                       )}
                     </div>
@@ -351,32 +462,36 @@ export default function FacultyReportsView({ token, tutor: currentTutor, onBack 
                         distinctClasses.map((c, idx) => (
                           <span
                             key={idx}
-                            className="px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-xs text-slate-200 flex items-center gap-1.5"
+                            className={`px-2.5 py-1 rounded-lg border text-xs flex items-center gap-1.5 ${
+                              c.is_assigned
+                                ? 'bg-amber-950/20 border-amber-500/30 text-amber-200'
+                                : 'bg-slate-800/80 border-slate-700/80 text-slate-200'
+                            }`}
                           >
                             <span className="font-bold text-white">{c.group_code}</span>
                             <span className="text-slate-500">•</span>
                             <span className="text-emerald-400 font-medium">{c.subject} ({c.class_type})</span>
                             <span className="text-slate-500">•</span>
-                            <span className="text-[11px] text-slate-400">{c.session_count} sheets ({c.student_count} students)</span>
+                            <span className="text-[11px] text-slate-400">
+                              {c.session_count > 0 ? `${c.session_count} sheets` : 'Assigned'} ({c.student_count} students)
+                            </span>
                           </span>
                         ))
                       ) : !hasAssigned ? (
-                        <span className="text-xs text-slate-500 italic">No class sessions recorded yet.</span>
+                        <span className="text-xs text-slate-500 italic">No class sections assigned yet. Click "Assign Classes" to set up.</span>
                       ) : null}
                     </div>
                   </div>
 
-                  {/* Edit Assigned Classes Button */}
+                  {/* Assign / Edit Classes Button */}
                   <button
                     type="button"
-                    onClick={() => {
-                      setEditingClassesTutor(t);
-                      setAssignedClassesInput(t.assigned_classes || '');
-                    }}
-                    className="self-start sm:self-center px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1 transition"
+                    onClick={() => handleOpenAssignModal(t)}
+                    className="self-start sm:self-center px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 rounded-xl text-xs font-bold border border-amber-500/30 flex items-center gap-1.5 transition shadow-sm active:scale-95"
+                    title="Select and assign class groups to this instructor"
                   >
-                    <Edit2 className="w-3 h-3 text-amber-400" />
-                    <span>{hasAssigned ? 'Edit Assigned' : '+ Assign Classes'}</span>
+                    <Edit2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>{hasAssigned ? 'Edit Assigned Classes' : '+ Assign Classes'}</span>
                   </button>
                 </div>
               </div>
@@ -612,54 +727,238 @@ export default function FacultyReportsView({ token, tutor: currentTutor, onBack 
         </div>
       )}
 
-      {/* MODAL: Edit Assigned Classes */}
+      {/* INTERACTIVE MODAL: Assign Class Sections with Conflict Detection & Tutor Marking */}
       {editingClassesTutor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-pop">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm animate-pop">
+          <div className="w-full max-w-4xl max-h-[92vh] bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-2xl flex flex-col space-y-4 overflow-hidden">
+            {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Edit2 className="w-4 h-4 text-amber-400" />
-                <h3 className="text-base font-bold text-white">Assign Class Sections</h3>
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center font-bold text-xs">
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </div>
+                  <h3 className="text-lg font-black text-white">
+                    Assign Classes to {editingClassesTutor.name}
+                  </h3>
+                  <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase font-bold">
+                    {editingClassesTutor.role || 'tutor'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Select course subject and class type below. Classes already taken by other tutors are marked with an amber/red lock.
+                </p>
               </div>
+
               <button
                 type="button"
                 onClick={() => setEditingClassesTutor(null)}
-                className="p-1 text-slate-400 hover:text-white"
+                className="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-xs text-slate-400">
-              Specify the class sections and courses handled by <strong>{editingClassesTutor.name}</strong> (e.g. "I2-G01, I2-G04 (Electricity TD)").
-            </p>
+            {/* Step 1: Select Subject & Course Type */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-slate-950/60 border border-slate-800 rounded-2xl">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
+                  <BookOpen className="w-3 h-3 text-indigo-400" />
+                  <span>Subject (Matière)</span>
+                </label>
+                <select
+                  value={assignmentSubject}
+                  onChange={(e) => handleCourseChange(e.target.value, assignmentClassType)}
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white font-semibold focus:outline-none focus:border-amber-400"
+                >
+                  <option value="Electricity">⚡ Electricity (អគ្គិសនី)</option>
+                  <option value="Mechanics">⚙️ Mechanics (មេកានិច)</option>
+                  <option value="Physics I (Physics for Engineering)">📘 Physics I (Physics for Engineering)</option>
+                  <option value="Physics II">📗 Physics II</option>
+                  <option value="Vibrations and Waves">🌊 Vibrations and Waves (រំញ័រ និងរលក)</option>
+                  <option value="Thermodynamics">🔥 Thermodynamics (ទែម៉ូឌីណាមិច)</option>
+                </select>
+              </div>
 
-            <form onSubmit={handleSaveAssignedClasses} className="space-y-4">
-              <input
-                type="text"
-                value={assignedClassesInput}
-                onChange={(e) => setAssignedClassesInput(e.target.value)}
-                placeholder="e.g. I2-G01, I2-G02 (Electricity TD), I2-G05 (TP)"
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 font-mono"
-              />
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
+                  <Calendar className="w-3 h-3 text-emerald-400" />
+                  <span>Course Type</span>
+                </label>
+                <select
+                  value={assignmentClassType}
+                  onChange={(e) => handleCourseChange(assignmentSubject, e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-emerald-400 font-bold focus:outline-none focus:border-amber-400"
+                >
+                  <option value="TD">TD (Travaux Dirigés / Recitation)</option>
+                  <option value="Cours">Cours (Amphithéâtre / Lecture)</option>
+                  <option value="TP">TP (Travaux Pratiques / Lab)</option>
+                </select>
+              </div>
+            </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+            {/* Conflict Warning if taking a group already assigned to someone else */}
+            {transferWarning && (
+              <div className="p-3 bg-amber-950/50 border border-amber-500/40 rounded-xl text-xs text-amber-200 flex items-start gap-2 animate-fadeIn">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <span>{transferWarning}</span>
+              </div>
+            )}
+
+            {/* Step 2: Search, Department Chips & Selection Toolbar */}
+            <div className="space-y-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                {/* Search */}
+                <div className="relative flex-1">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="text"
+                    value={assignmentSearch}
+                    onChange={(e) => setAssignmentSearch(e.target.value)}
+                    placeholder="Search class group (e.g. GCA, GEE, AMS)..."
+                    className="w-full pl-9 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                {/* Selection Actions & Counts */}
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg">
+                    {selectedGroupIds.size} Selected ({totalStudentsSelected} Students)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectAllAvailable(filteredAssignmentGroups)}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-medium transition"
+                  >
+                    Select Available
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeselectAll}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg transition"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              {/* Department Quick Filter Chips */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px]">
+                {distinctDepts.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setAssignmentDeptFilter(d)}
+                    className={`px-2.5 py-0.5 rounded-lg font-bold transition whitespace-nowrap ${
+                      assignmentDeptFilter === d
+                        ? 'bg-amber-500 text-slate-950 shadow-sm'
+                        : 'bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {d === 'ALL' ? 'All Sections' : d}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Step 3: Class Groups List with Statuses */}
+            <div className="flex-1 overflow-y-auto border border-slate-800 rounded-2xl p-3 bg-slate-950/50">
+              {groupsLoading ? (
+                <div className="py-16 text-center space-y-2">
+                  <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                  <p className="text-xs text-slate-400">Loading class assignments for {assignmentSubject} ({assignmentClassType})...</p>
+                </div>
+              ) : filteredAssignmentGroups.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 text-xs">
+                  No class groups match the search criteria.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                  {filteredAssignmentGroups.map((group) => {
+                    const isSelected = selectedGroupIds.has(group.id);
+                    const isTaken = group.isTakenByOther;
+                    const isMine = group.isAssignedToCurrent;
+
+                    return (
+                      <div
+                        key={group.id}
+                        onClick={() => handleToggleGroup(group)}
+                        className={`p-3 rounded-xl border text-left cursor-pointer transition-all flex flex-col justify-between select-none ${
+                          isSelected
+                            ? 'bg-amber-950/30 border-amber-500/60 ring-1 ring-amber-500/30 shadow-md'
+                            : isTaken
+                            ? 'bg-slate-900/40 border-slate-800 hover:border-slate-700 opacity-85'
+                            : 'bg-slate-900/80 border-slate-800 hover:border-slate-700 hover:bg-slate-800/50'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                            ) : (
+                              <Square className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" />
+                            )}
+                            <div>
+                              <div className="font-bold text-white text-sm">{group.code}</div>
+                              <div className="text-[10px] text-slate-400">{group.student_count} Students</div>
+                            </div>
+                          </div>
+
+                          {/* Status Badge */}
+                          <div>
+                            {isMine && isSelected ? (
+                              <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                Assigned to Tutor
+                              </span>
+                            ) : isTaken ? (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-500/10 text-rose-300 border border-rose-500/30 flex items-center gap-1" title={`Assigned to ${group.assignedTutorName}`}>
+                                <Lock className="w-2.5 h-2.5" />
+                                <span className="truncate max-w-[80px]">{group.assignedTutorName}</span>
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+                                Available
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {isTaken && (
+                          <div className="text-[10px] text-rose-300/80 mt-2 pt-1 border-t border-slate-800/80">
+                            Taken by {group.assignedTutorName}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-800">
+              <div className="text-xs text-slate-400">
+                Saving will assign the selected groups for <strong>{assignmentSubject} ({assignmentClassType})</strong> to {editingClassesTutor.name}.
+              </div>
+
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setEditingClassesTutor(null)}
-                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-white"
+                  className="px-4 py-2 text-xs text-slate-400 hover:text-white"
                 >
                   Cancel
                 </button>
                 <button
-                  type="submit"
+                  type="button"
                   disabled={savingClasses}
-                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl shadow transition"
+                  onClick={handleSaveAssignments}
+                  className="px-5 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs rounded-xl shadow-lg transition transform active:scale-95"
                 >
-                  {savingClasses ? 'Saving...' : 'Save Assigned Classes'}
+                  {savingClasses ? 'Saving Assignments...' : 'Confirm & Save Assignments'}
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}
